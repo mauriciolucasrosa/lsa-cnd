@@ -138,6 +138,8 @@ tr:hover td{background:#fafbfc;cursor:pointer}
 .cert-dot{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;cursor:pointer;position:relative}
 .cert-dot.ok{background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-border)}
 .cert-dot.pendente{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
+.cert-dot.vencendo{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
+.cert-dot.vencida{background:var(--err-bg);color:var(--err);border:1px solid var(--err-border)}
 .cert-dot.vazio{background:var(--bg);color:var(--muted2);border:1px solid var(--border)}
 
 /* ── PANEL ── */
@@ -161,10 +163,14 @@ tr:hover td{background:#fafbfc;cursor:pointer}
 .cert-card:hover{border-color:var(--blue);box-shadow:var(--shadow-md)}
 .cert-card.ok{border-color:var(--ok-border);background:var(--ok-bg)}
 .cert-card.pendente{border-color:var(--warn-border);background:var(--warn-bg)}
+.cert-card.vencendo{border-color:var(--warn-border);background:var(--warn-bg)}
+.cert-card.vencida{border-color:var(--err-border);background:var(--err-bg)}
 .cert-name{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
 .cert-status{font-size:13px;font-weight:600;margin-bottom:4px}
 .cert-card.ok .cert-status{color:var(--ok)}
 .cert-card.pendente .cert-status{color:var(--warn)}
+.cert-card.vencendo .cert-status{color:var(--warn)}
+.cert-card.vencida .cert-status{color:var(--err)}
 .cert-card.vazio .cert-status{color:var(--muted2)}
 .cert-date{font-size:10px;color:var(--muted2)}
 .cert-actions{margin-top:10px;display:flex;flex-direction:column;gap:5px}
@@ -572,6 +578,10 @@ tr:hover td{background:#fafbfc;cursor:pointer}
     </div>
     <input type="file" id="file-input" accept=".pdf" style="display:none" onchange="arquivoSelecionado(this)">
     <div id="arquivo-info" style="display:none;margin-top:12px;padding:10px 14px;background:var(--ok-bg);border:1px solid var(--ok-border);border-radius:var(--radius);font-size:13px;color:var(--ok)"></div>
+    <div class="form-group" style="margin-top:14px">
+      <label class="form-label" for="upload-vencimento">Data de vencimento da CND</label>
+      <input type="date" class="form-input" id="upload-vencimento">
+    </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="fecharModal('modal-upload')">Cancelar</button>
       <button class="btn btn-primary" onclick="fazerUpload()" id="btn-upload" disabled>
@@ -601,7 +611,8 @@ const CONFIG = {
     'admin': 'lsa@2026',
     'mauricio': 'cnd@lsa'
   },
-  TIPOS_CND: ['Federal', 'Estadual', 'Municipal', 'Trabalhista', 'FGTS']
+  TIPOS_CND: ['Federal', 'Estadual', 'Municipal', 'Trabalhista', 'FGTS'],
+  DIAS_ALERTA_VENCIMENTO: 15 // avisa como "vencendo em breve" a partir de quantos dias antes do vencimento
 };
 
 // ══════════════════════════════════════════
@@ -814,12 +825,13 @@ async function carregarDados() {
     // Certidões
     const rCert = await window.gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: CONFIG.SHEETS_ID,
-      range: 'CERTIDOES!A2:H'
+      range: 'CERTIDOES!A2:I'
     });
     const rowsCert = rCert.result.values || [];
     state.certidoes = rowsCert.map(r => ({
       id: r[0]||'', cliente_id: r[1]||'', tipo: r[2]||'', mes_ano: r[3]||'',
-      status: r[4]||'pendente', data_upload: r[5]||'', link_drive: r[6]||'', observacao: r[7]||''
+      status: r[4]||'pendente', data_upload: r[5]||'', link_drive: r[6]||'', observacao: r[7]||'',
+      vencimento: r[8]||'' // AAAA-MM-DD; certidões antigas sem essa coluna ficam com ''
     })).filter(c => c.cliente_id);
 
     atualizarUI();
@@ -937,6 +949,7 @@ async function fazerUpload() {
   if (!arquivoAtual) return;
   const tipo = document.getElementById('upload-tipo').value;
   const mes = document.getElementById('upload-mes').value;
+  const vencimento = document.getElementById('upload-vencimento').value; // AAAA-MM-DD ou ''
   const cliente = state.clienteAtual;
 
   mostrarLoading('Enviando para o Google Drive...');
@@ -984,7 +997,8 @@ async function fazerUpload() {
       status: 'em_dia',
       data_upload: new Date().toLocaleDateString('pt-BR'),
       link_drive: linkDrive,
-      observacao: ''
+      observacao: '',
+      vencimento // AAAA-MM-DD, usado para calcular se a CND está vencida/vencendo
     };
 
     // Remove certidão anterior do mesmo tipo/mês se existir
@@ -993,10 +1007,10 @@ async function fazerUpload() {
 
     if (state.googleToken) {
       // Salva no Sheets
-      const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao];
+      const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao, cert.vencimento];
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: CONFIG.SHEETS_ID,
-        range: 'CERTIDOES!A:H',
+        range: 'CERTIDOES!A:I',
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         resource: {values: [row]}
@@ -1089,18 +1103,43 @@ function getCertidao(clienteId, tipo, mes) {
   return state.certidoes.find(c => c.cliente_id === clienteId && c.tipo === tipo && c.mes_ano === mes);
 }
 
+// Calcula a situação da CND a partir da data de vencimento informada no upload:
+// 'vencida'   → já passou do vencimento (precisa emitir uma nova urgente)
+// 'vencendo'  → vence dentro de CONFIG.DIAS_ALERTA_VENCIMENTO dias
+// null        → sem vencimento cadastrado (certidão antiga) ou ainda confortavelmente válida
+// Comparamos por data local (não UTC) para não classificar errado perto da virada do dia.
+function situacaoVencimento(cert) {
+  if (!cert || !cert.vencimento) return null;
+  const [ano, mes, dia] = cert.vencimento.split('-').map(Number);
+  if (!ano || !mes || !dia) return null;
+  const venc = new Date(ano, mes - 1, dia);
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const diasRestantes = Math.round((venc - hoje) / 86400000);
+  if (diasRestantes < 0) return 'vencida';
+  if (diasRestantes <= CONFIG.DIAS_ALERTA_VENCIMENTO) return 'vencendo';
+  return null;
+}
+
+function formatarDataBR(isoDate) {
+  if (!isoDate) return '';
+  const [ano, mes, dia] = isoDate.split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
+// Uma CND só conta como "em dia" se foi enviada E ainda não passou do
+// vencimento cadastrado — se venceu, mesmo com o PDF no Drive, o cliente
+// está exposto e isso precisa aparecer como pendência.
+function certificadoEmDia(c) {
+  return !!c && c.status === 'em_dia' && situacaoVencimento(c) !== 'vencida';
+}
+
 function todasCertidonesOk(clienteId, mes) {
-  return CONFIG.TIPOS_CND.every(t => {
-    const c = getCertidao(clienteId, t, mes);
-    return c && c.status === 'em_dia';
-  });
+  return CONFIG.TIPOS_CND.every(t => certificadoEmDia(getCertidao(clienteId, t, mes)));
 }
 
 function temPendente(clienteId, mes) {
-  return CONFIG.TIPOS_CND.some(t => {
-    const c = getCertidao(clienteId, t, mes);
-    return !c || c.status !== 'em_dia';
-  });
+  return CONFIG.TIPOS_CND.some(t => !certificadoEmDia(getCertidao(clienteId, t, mes)));
 }
 
 function semCertidoes(clienteId, mes) {
@@ -1115,9 +1154,17 @@ function statusCliente(clienteId, mes) {
 
 function certDot(clienteId, tipo, mes) {
   const c = getCertidao(clienteId, tipo, mes);
-  const cls = c ? (c.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
+  const venc = situacaoVencimento(c);
+  // Mesmo com o PDF enviado ("em_dia"), uma CND com vencimento já passado
+  // precisa aparecer como vencida — o dot não pode dizer que está tudo bem.
+  let cls = c ? (c.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
+  if (venc === 'vencida') cls = 'vencida';
+  else if (venc === 'vencendo' && cls === 'ok') cls = 'vencendo';
+  let titulo = `${tipo}: ${c ? c.status : 'pendente'}`;
+  if (venc === 'vencida') titulo = `${tipo}: VENCIDA em ${formatarDataBR(c.vencimento)}`;
+  else if (venc === 'vencendo') titulo = `${tipo}: vence em ${formatarDataBR(c.vencimento)}`;
   const abrev = {Federal:'Fed',Estadual:'Est',Municipal:'Mun',Trabalhista:'Trab',FGTS:'FGTS'}[tipo];
-  return `<div class="cert-dot ${cls}" title="${tipo}: ${c ? c.status : 'pendente'}">${abrev}</div>`;
+  return `<div class="cert-dot ${cls}" title="${titulo}">${abrev}</div>`;
 }
 
 // ── DASHBOARD TABLE ──
@@ -1193,7 +1240,7 @@ function renderizarPendentes() {
   const clientes = state.clientes.filter(c => c.ativo === 'sim' && temPendente(c.id, state.mesAtual));
   const pendentes = [];
   clientes.forEach(c => {
-    const tipos = CONFIG.TIPOS_CND.filter(t => { const cert = getCertidao(c.id,t,state.mesAtual); return !cert || cert.status !== 'em_dia'; });
+    const tipos = CONFIG.TIPOS_CND.filter(t => !certificadoEmDia(getCertidao(c.id, t, state.mesAtual)));
     if (tipos.length) pendentes.push({cliente: c, tipos});
   });
 
@@ -1208,7 +1255,11 @@ function renderizarPendentes() {
     <tr onclick="abrirDetalhe('${c.id}')">
       <td><strong>${c.razao_social}</strong></td>
       <td><span class="mono">${c.cnpj}</span></td>
-      <td><div style="display:flex;gap:4px;flex-wrap:wrap">${tipos.map(t=>`<span class="badge badge-warn">${t}</span>`).join('')}</div></td>
+      <td><div style="display:flex;gap:4px;flex-wrap:wrap">${tipos.map(t => {
+        const cert = getCertidao(c.id, t, state.mesAtual);
+        const vencida = situacaoVencimento(cert) === 'vencida';
+        return `<span class="badge ${vencida ? 'badge-err' : 'badge-warn'}">${t}${vencida ? ' (vencida)' : ''}</span>`;
+      }).join('')}</div></td>
       <td><span class="mono">${state.mesAtual}</span></td>
       <td><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Resolver</button></td>
     </tr>
@@ -1235,13 +1286,20 @@ function renderizarDetalheCliente() {
   const grid = document.getElementById('det-cert-grid');
   grid.innerHTML = CONFIG.TIPOS_CND.map(tipo => {
     const cert = getCertidao(c.id, tipo, state.mesAtual);
-    const cls = cert ? (cert.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
-    const statusTxt = cert ? (cert.status === 'em_dia' ? 'Em dia' : 'Pendente') : 'Não emitida';
+    const venc = situacaoVencimento(cert);
+    let cls = cert ? (cert.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
+    let statusTxt = cert ? (cert.status === 'em_dia' ? 'Em dia' : 'Pendente') : 'Não emitida';
+    if (venc === 'vencida') { cls = 'vencida'; statusTxt = 'Vencida'; }
+    else if (venc === 'vencendo' && cls === 'ok') { cls = 'vencendo'; statusTxt = 'Vence em breve'; }
+    const dataTxt = [
+      cert && cert.data_upload ? `Enviado ${cert.data_upload}` : '',
+      cert && cert.vencimento ? `Vence ${formatarDataBR(cert.vencimento)}` : ''
+    ].filter(Boolean).join(' · ') || '—';
     return `
       <div class="cert-card ${cls}">
         <div class="cert-name">${tipo}</div>
         <div class="cert-status">${statusTxt}</div>
-        <div class="cert-date">${cert ? cert.data_upload : '—'}</div>
+        <div class="cert-date">${dataTxt}</div>
         <div class="cert-actions">
           ${cert && cert.link_drive ? `<a href="${cert.link_drive}" target="_blank" class="cert-btn">Ver PDF</a>` : ''}
           <button class="cert-btn upload-btn" onclick="abrirUpload('${tipo}','${state.mesAtual}')">
@@ -1262,11 +1320,7 @@ function renderizarDetalheCliente() {
     <div class="hist-row">
       <span class="hist-mes">${mes}</span>
       <div class="hist-certs">
-        ${CONFIG.TIPOS_CND.map(tipo => {
-          const cert = getCertidao(c.id, tipo, mes);
-          const cls = cert ? (cert.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
-          return `<div class="cert-dot ${cls}" title="${tipo}">${tipo.substring(0,3)}</div>`;
-        }).join('')}
+        ${CONFIG.TIPOS_CND.map(tipo => certDot(c.id, tipo, mes)).join('')}
       </div>
       <div class="hist-action">
         <button class="btn btn-ghost btn-sm" onclick="state.mesAtual='${mes}';renderizarDetalheCliente()">Ver mês</button>
@@ -1329,6 +1383,10 @@ function abrirUpload(tipo, mes) {
   document.getElementById('btn-upload').disabled = true;
   arquivoAtual = null;
   document.getElementById('file-input').value = '';
+  // Se já existe uma CND enviada para esse tipo/mês, pré-preenche com o
+  // vencimento salvo (útil ao reenviar/corrigir um upload).
+  const certExistente = getCertidao(state.clienteAtual?.id, tipo, mes);
+  document.getElementById('upload-vencimento').value = certExistente?.vencimento || '';
   document.getElementById('modal-upload').classList.add('open');
 }
 
