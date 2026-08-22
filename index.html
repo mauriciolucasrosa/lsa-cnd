@@ -722,15 +722,20 @@ function iniciarApp() {
         } catch (e) {
           console.error('[Google Auth] Erro ao inicializar gapi.client:', e);
         }
-        // Token salvo?
-        const token = sessionStorage.getItem('google_token');
-        const expiry = sessionStorage.getItem('google_expiry');
+        // Token salvo? Usamos localStorage (em vez de sessionStorage) para o
+        // token sobreviver ao fechar/reabrir a aba ou o navegador no mesmo
+        // dispositivo — só expira de verdade quando o token do Google vence
+        // (~1h) ou quando o usuário faz logout. Continua isolado por
+        // navegador/dispositivo (isso é inerente a um app sem backend).
+        const token = localStorage.getItem('google_token');
+        const expiry = localStorage.getItem('google_expiry');
         if (token && expiry && Date.now() < parseInt(expiry)) {
           state.googleToken = token;
           window.gapi.client.setToken({access_token: token});
           esconderLoading();
           carregarDados();
         } else {
+          if (token) { localStorage.removeItem('google_token'); localStorage.removeItem('google_expiry'); }
           esconderLoading();
           document.getElementById('google-banner').classList.add('show');
           carregarDadosLocais();
@@ -751,8 +756,8 @@ function iniciarApp() {
             return;
           }
           state.googleToken = resp.access_token;
-          sessionStorage.setItem('google_token', resp.access_token);
-          sessionStorage.setItem('google_expiry', Date.now() + (resp.expires_in * 1000));
+          localStorage.setItem('google_token', resp.access_token);
+          localStorage.setItem('google_expiry', Date.now() + (resp.expires_in * 1000));
           window.gapi.client.setToken({access_token: resp.access_token});
           document.getElementById('google-banner').classList.remove('show');
           mostrarToast('✅ Google conectado!');
