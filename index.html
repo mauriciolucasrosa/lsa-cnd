@@ -319,7 +319,7 @@ tr:hover td{background:#fafbfc;cursor:pointer}
         <div class="google-auth-banner" id="google-banner">
           <svg viewBox="0 0 16 16" style="stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
           Conecte o Google para salvar PDFs no Drive
-          <button class="btn btn-primary btn-sm" onclick="iniciarGoogleAuth()" style="margin-left:auto;flex-shrink:0">Conectar Google</button>
+          <button class="btn btn-primary btn-sm" id="btn-google-connect" onclick="iniciarGoogleAuth()" disabled style="margin-left:auto;flex-shrink:0">Carregando Google...</button>
         </div>
       </div>
     </div>
@@ -658,21 +658,70 @@ if (sessionStorage.getItem('lsa_auth')) {
 // ══════════════════════════════════════════
 // GOOGLE API
 // ══════════════════════════════════════════
+// Mensagens amigáveis para os códigos de erro que o Google Identity Services
+// pode devolver no callback do token client. Ver:
+// https://developers.google.com/identity/oauth2/web/guides/error
+// Erros das chamadas gapi.client (Sheets/Drive) não são objetos Error comuns —
+// a mensagem real fica aninhada em e.result.error.message (ou em e.body, em
+// alguns casos). Por isso "e.message" sozinho quase sempre vem undefined.
+// Esta função tenta, nessa ordem, achar o texto mais útil disponível.
+function extrairErroGoogle(e) {
+  if (!e) return 'erro desconhecido';
+  if (e.result && e.result.error && e.result.error.message) {
+    return e.result.error.message + (e.result.error.status ? ` (${e.result.error.status})` : '');
+  }
+  if (e.message) return e.message;
+  if (typeof e.body === 'string') {
+    try {
+      const b = JSON.parse(e.body);
+      if (b.error && b.error.message) return b.error.message;
+    } catch (_) { /* body não era JSON */ }
+  }
+  if (typeof e === 'string') return e;
+  try { return JSON.stringify(e); } catch (_) { return 'erro desconhecido (veja o console)'; }
+}
+
+const GOOGLE_ERROR_MESSAGES = {
+  popup_closed_by_user: 'Você fechou a janela do Google antes de concluir o login.',
+  access_denied: 'Acesso negado. Verifique se esta conta Google está autorizada como "Test user" no OAuth consent screen do projeto.',
+  immediate_failed: 'Não foi possível autenticar automaticamente. Clique novamente em "Conectar Google".',
+  invalid_client: 'Client ID inválido ou não corresponde a este domínio. Confira "Authorized JavaScript origins" no Google Cloud Console.',
+  idpiframe_initialization_failed: 'Falha ao inicializar o Google (cookies de terceiros bloqueados?). Tente em outra janela/navegador sem bloqueadores.',
+};
+
 function iniciarApp() {
   mostrarLoading('Carregando...');
+  console.log('[Google Auth] Origem atual (use exatamente isto em "Authorized JavaScript origins"):', window.location.origin);
+
   const script = document.createElement('script');
   script.src = 'https://accounts.google.com/gsi/client';
+  script.onerror = () => {
+    esconderLoading();
+    console.error('[Google Auth] Falha ao carregar https://accounts.google.com/gsi/client — verifique bloqueadores de anúncio/rede ou conexão.');
+    mostrarToast('Não foi possível carregar o script do Google. Desative bloqueadores de anúncio/tracking e recarregue a página.');
+    document.getElementById('google-banner').classList.add('show');
+    carregarDadosLocais();
+  };
   script.onload = () => {
     const gapi = document.createElement('script');
     gapi.src = 'https://apis.google.com/js/api.js';
+    gapi.onerror = () => {
+      esconderLoading();
+      console.error('[Google Auth] Falha ao carregar https://apis.google.com/js/api.js');
+      mostrarToast('Não foi possível carregar a API do Google (gapi). Recarregue a página.');
+    };
     gapi.onload = () => {
       window.gapi.load('client', async () => {
-        await window.gapi.client.init({
-          discoveryDocs: [
-            'https://sheets.googleapis.com/$discovery/rest?version=v4',
-            'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
-          ]
-        });
+        try {
+          await window.gapi.client.init({
+            discoveryDocs: [
+              'https://sheets.googleapis.com/$discovery/rest?version=v4',
+              'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
+            ]
+          });
+        } catch (e) {
+          console.error('[Google Auth] Erro ao inicializar gapi.client:', e);
+        }
         // Token salvo?
         const token = sessionStorage.getItem('google_token');
         const expiry = sessionStorage.getItem('google_expiry');
@@ -690,26 +739,53 @@ function iniciarApp() {
     };
     document.head.appendChild(gapi);
 
-    state.tokenClient = window.google.accounts.oauth2.initTokenClient({
-      client_id: CONFIG.CLIENT_ID,
-      scope: CONFIG.SCOPES,
-      callback: (resp) => {
-        if (resp.error) { mostrarToast('Erro ao conectar Google: ' + resp.error); return; }
-        state.googleToken = resp.access_token;
-        sessionStorage.setItem('google_token', resp.access_token);
-        sessionStorage.setItem('google_expiry', Date.now() + (resp.expires_in * 1000));
-        window.gapi.client.setToken({access_token: resp.access_token});
-        document.getElementById('google-banner').classList.remove('show');
-        mostrarToast('✅ Google conectado!');
-        carregarDados();
-      }
-    });
+    try {
+      state.tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: CONFIG.CLIENT_ID,
+        scope: CONFIG.SCOPES,
+        callback: (resp) => {
+          if (resp.error) {
+            const msg = GOOGLE_ERROR_MESSAGES[resp.error] || resp.error;
+            console.error('[Google Auth] Erro retornado pelo Google:', resp.error, resp);
+            mostrarToast('Erro ao conectar Google: ' + msg);
+            return;
+          }
+          state.googleToken = resp.access_token;
+          sessionStorage.setItem('google_token', resp.access_token);
+          sessionStorage.setItem('google_expiry', Date.now() + (resp.expires_in * 1000));
+          window.gapi.client.setToken({access_token: resp.access_token});
+          document.getElementById('google-banner').classList.remove('show');
+          mostrarToast('✅ Google conectado!');
+          carregarDados();
+        },
+        error_callback: (err) => {
+          // Cobre erros que acontecem ANTES do popup devolver um token
+          // (ex.: popup bloqueado pelo navegador), que não passam pelo callback acima.
+          console.error('[Google Auth] error_callback:', err);
+          const code = err && err.type;
+          const msg = GOOGLE_ERROR_MESSAGES[code] || (code === 'popup_failed_to_open'
+            ? 'O navegador bloqueou o pop-up de login do Google. Permita pop-ups para este site e tente novamente.'
+            : (code || 'Falha desconhecida ao abrir o login do Google.'));
+          mostrarToast('Erro ao conectar Google: ' + msg);
+        }
+      });
+      const btn = document.getElementById('btn-google-connect');
+      if (btn) { btn.disabled = false; btn.textContent = 'Conectar Google'; }
+    } catch (e) {
+      console.error('[Google Auth] Erro ao criar tokenClient (Client ID incorreto?):', e);
+      mostrarToast('Erro ao configurar login do Google. Veja o console para detalhes.');
+    }
   };
   document.head.appendChild(script);
 }
 
 function iniciarGoogleAuth() {
-  if (state.tokenClient) state.tokenClient.requestAccessToken({prompt: 'consent'});
+  if (!state.tokenClient) {
+    console.warn('[Google Auth] tokenClient ainda não está pronto. Origem:', window.location.origin);
+    mostrarToast('O login do Google ainda está carregando. Aguarde alguns segundos e tente novamente.');
+    return;
+  }
+  state.tokenClient.requestAccessToken({prompt: 'consent'});
 }
 
 // ══════════════════════════════════════════
@@ -745,8 +821,10 @@ async function carregarDados() {
     esconderLoading();
   } catch(e) {
     esconderLoading();
-    if (e.status === 401) { iniciarGoogleAuth(); return; }
-    mostrarToast('Erro ao carregar dados: ' + e.message);
+    console.error('[Sheets] Erro ao carregar dados:', e);
+    const code = (e && e.status) || (e && e.result && e.result.error && e.result.error.code);
+    if (code === 401) { mostrarToast('Sessão do Google expirou, reconecte.'); iniciarGoogleAuth(); return; }
+    mostrarToast('Erro ao carregar dados: ' + extrairErroGoogle(e));
     carregarDadosLocais();
   }
 }
@@ -826,7 +904,10 @@ async function salvarCliente() {
     atualizarUI();
     mostrarToast(id_edit ? '✅ Cliente atualizado!' : '✅ Cliente cadastrado!');
   } catch(e) {
-    mostrarToast('Erro ao salvar: ' + e.message);
+    console.error('[Sheets] Erro ao salvar cliente:', e);
+    const code = (e && e.status) || (e && e.result && e.result.error && e.result.error.code);
+    if (code === 401) { mostrarToast('Sessão do Google expirou, reconecte e tente salvar de novo.'); esconderLoading(); iniciarGoogleAuth(); return; }
+    mostrarToast('Erro ao salvar: ' + extrairErroGoogle(e));
   }
   esconderLoading();
 }
@@ -879,12 +960,12 @@ async function fazerUpload() {
       })], {type: 'application/json'}));
       form.append('file', arquivoAtual);
 
-      const resp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+      const data = await fetchGoogleJSON('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
         method: 'POST',
         headers: {Authorization: `Bearer ${state.googleToken}`},
         body: form
       });
-      const data = await resp.json();
+      if (!data.id) throw new Error('Upload não retornou um ID de arquivo válido.');
       linkDrive = data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
     }
 
@@ -923,7 +1004,10 @@ async function fazerUpload() {
     renderizarDetalheCliente();
     mostrarToast('✅ CND enviada com sucesso!');
   } catch(e) {
-    mostrarToast('Erro no upload: ' + e.message);
+    console.error('[Drive/Sheets] Erro no upload:', e);
+    const code = (e && e.status) || (e && e.result && e.result.error && e.result.error.code);
+    if (code === 401) { mostrarToast('Sessão do Google expirou, reconecte e tente enviar de novo.'); esconderLoading(); iniciarGoogleAuth(); return; }
+    mostrarToast('Erro no upload: ' + extrairErroGoogle(e));
   }
 
   arquivoAtual = null;
@@ -931,21 +1015,38 @@ async function fazerUpload() {
   esconderLoading();
 }
 
+// fetch() não rejeita a Promise em respostas HTTP de erro (401/403/404/...) —
+// só rejeita em falha de rede. Por isso todo fetch direto à API do Google
+// precisa checar resp.ok manualmente e jogar um erro explícito; senão o
+// código segue adiante como se tivesse dado certo, salvando dados quebrados
+// (ex.: link do Drive com "undefined" no lugar do ID do arquivo).
+async function fetchGoogleJSON(url, options) {
+  const resp = await fetch(url, options);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    // Formato compatível com extrairErroGoogle() usada nos erros do gapi.client
+    const err = new Error((data && data.error && data.error.message) || `Falha na requisição ao Google (HTTP ${resp.status})`);
+    err.status = resp.status;
+    err.result = data;
+    throw err;
+  }
+  return data;
+}
+
 async function buscarOuCriarPasta(nome, parentId) {
-  const q = `name='${nome}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  const resp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
+  const q = `name='${nome.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const data = await fetchGoogleJSON(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
     headers: {Authorization: `Bearer ${state.googleToken}`}
   });
-  const data = await resp.json();
   if (data.files && data.files.length > 0) return data.files[0].id;
 
   // Cria a pasta
-  const criar = await fetch('https://www.googleapis.com/drive/v3/files', {
+  const nova = await fetchGoogleJSON('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
     headers: {'Authorization': `Bearer ${state.googleToken}`, 'Content-Type': 'application/json'},
     body: JSON.stringify({name: nome, mimeType: 'application/vnd.google-apps.folder', parents: [parentId]})
   });
-  const nova = await criar.json();
+  if (!nova.id) throw new Error(`Não foi possível criar/localizar a pasta "${nome}" no Drive.`);
   return nova.id;
 }
 
