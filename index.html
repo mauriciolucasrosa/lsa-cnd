@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LSA Contábil — CND Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f0f2f5;
+  --surface:#ffffff;
+  --surface2:#f7f8fa;
+  --border:#e2e5eb;
+  --blue:#1a56db;
+  --blue-dark:#1341b0;
+  --blue-light:#ebf0fd;
+  --gray-dark:#1e2d3d;
+  --gray-mid:#2d3f50;
+  --text:#111827;
+  --muted:#6b7280;
+  --muted2:#9ca3af;
+  --ok:#16a34a;
+  --ok-bg:#f0fdf4;
+  --ok-border:#bbf7d0;
+  --warn:#d97706;
+  --warn-bg:#fffbeb;
+  --warn-border:#fde68a;
+  --err:#dc2626;
+  --err-bg:#fef2f2;
+  --err-border:#fecaca;
+  --font:'Inter',sans-serif;
+  --mono:'JetBrains Mono',monospace;
+  --radius:8px;
+  --radius-lg:12px;
+  --shadow:0 1px 3px rgba(0,0,0,.08);
+  --shadow-md:0 4px 16px rgba(0,0,0,.1);
+}
+
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh}
+
+/* ── LAYOUT ── */
+.shell{display:flex;min-height:100vh}
+.sidebar{width:240px;flex-shrink:0;background:var(--gray-dark);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:50;display:flex;flex-direction:column}
+.main{margin-left:240px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+
+/* ── SIDEBAR ── */
+.logo-area{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.07)}
+.logo-img{width:100%;max-height:56px;object-fit:contain;filter:brightness(0) invert(1);opacity:.9}
+.logo-sub{text-align:center;font-size:10px;font-weight:600;color:rgba(255,255,255,.35);letter-spacing:.14em;text-transform:uppercase;margin-top:8px}
+.nav{padding:14px 10px;flex:1}
+.nav-label{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.28);padding:0 8px;margin:14px 0 5px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius);cursor:pointer;color:rgba(255,255,255,.55);font-size:13px;font-weight:500;transition:.15s;user-select:none;margin-bottom:2px}
+.nav-item:hover{background:rgba(255,255,255,.07);color:rgba(255,255,255,.9)}
+.nav-item.active{background:var(--blue);color:#fff;box-shadow:0 2px 10px rgba(26,86,219,.4)}
+.nav-item svg{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sidebar-footer{padding:12px;border-top:1px solid rgba(255,255,255,.07)}
+.user-pill{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;transition:.15s}
+.user-pill:hover{background:rgba(255,255,255,.07)}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.user-name{font-size:12px;font-weight:600;color:rgba(255,255,255,.85)}
+.user-role{font-size:10px;color:rgba(255,255,255,.38)}
+
+/* ── TOPBAR ── */
+.topbar{height:54px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px;position:sticky;top:0;z-index:40;box-shadow:var(--shadow)}
+.page-title{font-size:16px;font-weight:700;letter-spacing:-.025em}
+.page-sub{font-size:13px;color:var(--muted);margin-left:4px;font-weight:400}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;border:none;font-family:var(--font);transition:.15s;white-space:nowrap}
+.btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-primary:hover{background:var(--blue-dark)}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--bg);color:var(--text)}
+.btn-danger{background:var(--err-bg);color:var(--err);border:1px solid var(--err-border)}
+.btn-sm{padding:5px 12px;font-size:12px}
+
+/* ── CONTENT ── */
+.content{flex:1;padding:24px;overflow-y:auto}
+.view{display:none;animation:fadeIn .2s ease}
+.view.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* ── STATS ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;box-shadow:var(--shadow);transition:.2s}
+.stat:hover{box-shadow:var(--shadow-md);transform:translateY(-1px)}
+.stat-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
+.stat-icon svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.stat-label{font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.stat-value{font-size:28px;font-weight:700;letter-spacing:-.04em;line-height:1}
+.stat-sub{font-size:11px;color:var(--muted2);margin-top:3px}
+.stat.blue .stat-icon{background:var(--blue-light);color:var(--blue)}
+.stat.blue .stat-value{color:var(--blue)}
+.stat.ok .stat-icon{background:var(--ok-bg);color:var(--ok)}
+.stat.ok .stat-value{color:var(--ok)}
+.stat.warn .stat-icon{background:var(--warn-bg);color:var(--warn)}
+.stat.warn .stat-value{color:var(--warn)}
+.stat.err .stat-icon{background:var(--err-bg);color:var(--err)}
+.stat.err .stat-value{color:var(--err)}
+
+/* ── SEARCH ── */
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.search-wrap{position:relative;flex:1;max-width:380px}
+.search-wrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;stroke:var(--muted2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.search-input{width:100%;padding:8px 12px 8px 34px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px;background:var(--surface);color:var(--text);outline:none;transition:.15s}
+.search-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,86,219,.1)}
+.filter-pills{display:flex;gap:5px}
+.pill{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);transition:.15s;font-family:var(--font)}
+.pill.active{background:var(--blue-light);color:var(--blue);border-color:#bcd0f7}
+.pill:hover:not(.active){background:var(--bg)}
+
+/* ── TABLE ── */
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow)}
+.table-header{padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface2)}
+.table-title{font-size:13px;font-weight:600}
+.table-count{font-size:12px;color:var(--muted)}
+table{width:100%;border-collapse:collapse}
+th{padding:9px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:12px 16px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#fafbfc;cursor:pointer}
+.mono{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:500;white-space:nowrap}
+.badge::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0}
+.badge-ok{background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-border)}
+.badge-warn{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
+.badge-err{background:var(--err-bg);color:var(--err);border:1px solid var(--err-border)}
+.badge-gray{background:var(--bg);color:var(--muted);border:1px solid var(--border)}
+.badge-blue{background:var(--blue-light);color:var(--blue);border:1px solid #bcd0f7}
+
+/* ── CERT MINI BADGES ── */
+.cert-row{display:flex;gap:4px;flex-wrap:wrap}
+.cert-dot{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;cursor:pointer;position:relative}
+.cert-dot.ok{background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-border)}
+.cert-dot.pendente{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
+.cert-dot.vazio{background:var(--bg);color:var(--muted2);border:1px solid var(--border)}
+
+/* ── PANEL ── */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;box-shadow:var(--shadow);margin-bottom:16px}
+.panel-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.panel-title{font-size:15px;font-weight:700;letter-spacing:-.02em}
+.panel-sub{font-size:12px;color:var(--muted);margin-top:2px}
+
+/* ── FORM ── */
+.form-grid{display:grid;gap:14px}
+.form-2{grid-template-columns:1fr 1fr}
+.form-3{grid-template-columns:1fr 1fr 1fr}
+.form-group{}
+.form-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;display:block}
+.form-input,.form-select{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px;color:var(--text);background:var(--surface);outline:none;transition:.15s}
+.form-input:focus,.form-select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,86,219,.1)}
+
+/* ── CERTIDÃO CARDS ── */
+.cert-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}
+.cert-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;text-align:center;transition:.2s;position:relative}
+.cert-card:hover{border-color:var(--blue);box-shadow:var(--shadow-md)}
+.cert-card.ok{border-color:var(--ok-border);background:var(--ok-bg)}
+.cert-card.pendente{border-color:var(--warn-border);background:var(--warn-bg)}
+.cert-name{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
+.cert-status{font-size:13px;font-weight:600;margin-bottom:4px}
+.cert-card.ok .cert-status{color:var(--ok)}
+.cert-card.pendente .cert-status{color:var(--warn)}
+.cert-card.vazio .cert-status{color:var(--muted2)}
+.cert-date{font-size:10px;color:var(--muted2)}
+.cert-actions{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.cert-btn{padding:5px 8px;border-radius:6px;font-size:10px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--blue);transition:.15s;font-family:var(--font);width:100%}
+.cert-btn:hover{background:var(--blue-light);border-color:#bcd0f7}
+.cert-btn.upload-btn{color:var(--ok);border-color:var(--ok-border)}
+.cert-btn.upload-btn:hover{background:var(--ok-bg)}
+
+/* ── HISTÓRICO ── */
+.hist-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.hist-row:last-child{border-bottom:none}
+.hist-mes{font-family:var(--mono);font-size:12px;font-weight:500;width:70px;flex-shrink:0}
+.hist-certs{display:flex;gap:5px;flex:1;flex-wrap:wrap}
+.hist-actions{margin-left:auto}
+
+/* ── UPLOAD AREA ── */
+.upload-area{border:2px dashed var(--border);border-radius:var(--radius-lg);padding:24px;text-align:center;cursor:pointer;transition:.2s;background:var(--surface2)}
+.upload-area:hover{border-color:var(--blue);background:var(--blue-light)}
+.upload-area svg{width:28px;height:28px;stroke:var(--muted2);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;margin:0 auto 8px;display:block}
+.upload-area p{font-size:13px;color:var(--muted)}
+.upload-area span{font-size:11px;color:var(--muted2)}
+
+/* ── MODAL ── */
+.overlay{display:none;position:fixed;inset:0;background:rgba(17,24,39,.5);z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);width:540px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:28px;box-shadow:var(--shadow-md);position:relative;animation:modalIn .2s ease}
+@keyframes modalIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:4px;letter-spacing:-.02em}
+.modal-sub{font-size:12px;color:var(--muted);margin-bottom:22px}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid var(--border)}
+.close-x{position:absolute;top:16px;right:16px;background:none;border:none;cursor:pointer;color:var(--muted);font-size:20px;line-height:1;padding:3px 7px;border-radius:6px;transition:.15s}
+.close-x:hover{background:var(--bg);color:var(--text)}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;right:24px;z-index:999;background:var(--gray-dark);color:#fff;padding:12px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:var(--shadow-md);display:none;align-items:center;gap:8px;animation:toastIn .3s ease}
+.toast.show{display:flex}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ── EMPTY STATE ── */
+.empty{text-align:center;padding:56px 24px;color:var(--muted)}
+.empty svg{width:36px;height:36px;stroke:var(--border);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;margin:0 auto 12px;display:block}
+.empty p{font-size:14px;margin-bottom:4px;font-weight:500}
+.empty span{font-size:12px;color:var(--muted2)}
+
+/* ── LOADING ── */
+.spinner{width:20px;height:20px;border:2px solid var(--blue-light);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.8);z-index:300;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.loading-overlay.show{display:flex}
+.loading-overlay p{font-size:13px;color:var(--muted);font-weight:500}
+
+/* ── LOGIN ── */
+#login-screen{position:fixed;inset:0;z-index:9999;background:var(--gray-dark);display:flex;align-items:center;justify-content:center}
+.login-box{background:var(--surface);border-radius:16px;padding:40px 36px;width:380px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
+.login-logo{width:160px;margin:0 auto 24px;display:block;filter:none}
+.login-title{font-size:18px;font-weight:700;margin-bottom:4px;color:var(--text)}
+.login-sub{font-size:13px;color:var(--muted);margin-bottom:28px}
+.login-input{width:100%;padding:11px 14px;margin-bottom:10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px;color:var(--text);outline:none;transition:.15s;box-sizing:border-box}
+.login-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,86,219,.1)}
+.login-btn{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);transition:.15s;margin-top:6px}
+.login-btn:hover{background:var(--blue-dark)}
+.login-error{color:var(--err);font-size:12px;margin-bottom:12px;background:var(--err-bg);padding:8px;border-radius:6px;display:none}
+.login-footer{font-size:11px;color:var(--muted2);margin-top:20px}
+
+/* ── GOOGLE AUTH ── */
+.google-auth-banner{background:var(--blue-light);border:1px solid #bcd0f7;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:none;align-items:center;gap:10px;font-size:13px;color:var(--blue)}
+.google-auth-banner.show{display:flex}
+.google-auth-banner svg{width:16px;height:16px;flex-shrink:0}
+.google-btn{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;font-family:var(--font);transition:.15s;color:var(--text)}
+.google-btn:hover{background:var(--bg);border-color:var(--border)}
+.google-btn img{width:16px;height:16px}
+
+@media(max-width:900px){
+  .sidebar{transform:translateX(-100%)}
+  .main{margin-left:0}
+  .stats{grid-template-columns:1fr 1fr}
+  .cert-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <div style="width:52px;height:52px;background:var(--blue);border-radius:14px;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;">
+      <svg viewBox="0 0 24 24" style="width:26px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    </div>
+    <div class="login-title">LSA Contábil</div>
+    <div class="login-sub">CND Manager — acesso restrito</div>
+    <div class="login-error" id="login-error">Usuário ou senha incorretos</div>
+    <input class="login-input" id="login-user" type="text" placeholder="Usuário" autocomplete="username">
+    <input class="login-input" id="login-pass" type="password" placeholder="Senha" autocomplete="current-password" onkeydown="if(event.key==='Enter')fazerLogin()">
+    <button class="login-btn" onclick="fazerLogin()">Entrar</button>
+    <div class="login-footer">LSA Contábil © 2026 — uso interno</div>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loading">
+  <div class="spinner"></div>
+  <p id="loading-msg">Carregando...</p>
+</div>
+
+<!-- SHELL -->
+<div class="shell">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="logo-area">
+      <div style="text-align:center">
+        <div style="font-size:18px;font-weight:800;color:#fff;letter-spacing:-.02em">LSA<span style="color:#3b82f6">CONTÁBIL</span></div>
+        <div class="logo-sub">CND Manager</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-label">Principal</div>
+      <div class="nav-item active" onclick="showView('dashboard',this)">
+        <svg viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" onclick="showView('clientes',this)">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
+        Clientes
+      </div>
+      <div class="nav-label">Certidões</div>
+      <div class="nav-item" onclick="showView('pendentes',this)">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
+        Pendentes
+        <span id="badge-pendentes" style="margin-left:auto;background:var(--warn);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;display:none">0</span>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-pill" onclick="fazerLogout()">
+        <div class="avatar" id="sidebar-avatar">MA</div>
+        <div>
+          <div class="user-name" id="sidebar-name">Administrador</div>
+          <div class="user-role">Sair</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <span class="page-title" id="page-title">Dashboard</span>
+        <span class="page-sub" id="page-sub"></span>
+      </div>
+      <div class="topbar-right" id="topbar-actions">
+        <div class="google-auth-banner" id="google-banner">
+          <svg viewBox="0 0 16 16" style="stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
+          Conecte o Google para salvar PDFs no Drive
+          <button class="btn btn-primary btn-sm" onclick="iniciarGoogleAuth()" style="margin-left:auto;flex-shrink:0">Conectar Google</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="view active" id="view-dashboard">
+        <div class="stats" id="stats-cards">
+          <div class="stat blue">
+            <div class="stat-icon"><svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg></div>
+            <div class="stat-label">Clientes ativos</div>
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-sub">cadastrados</div>
+          </div>
+          <div class="stat ok">
+            <div class="stat-icon"><svg viewBox="0 0 16 16"><path d="M3 8l3 3 7-7"/></svg></div>
+            <div class="stat-label">CNDs em dia</div>
+            <div class="stat-value" id="stat-ok">0</div>
+            <div class="stat-sub">todas certidões ok</div>
+          </div>
+          <div class="stat warn">
+            <div class="stat-icon"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg></div>
+            <div class="stat-label">Pendentes</div>
+            <div class="stat-value" id="stat-pendente">0</div>
+            <div class="stat-sub">aguardando emissão</div>
+          </div>
+          <div class="stat err">
+            <div class="stat-icon"><svg viewBox="0 0 16 16"><path d="M8 3v4M8 10v1"/><circle cx="8" cy="8" r="6"/></svg></div>
+            <div class="stat-label">Sem cadastro</div>
+            <div class="stat-value" id="stat-sem">0</div>
+            <div class="stat-sub">nenhuma CND</div>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-wrap">
+            <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4"/><path d="M10.5 10.5L14 14"/></svg>
+            <input class="search-input" id="dash-search" placeholder="Buscar cliente..." oninput="filtrarDashboard(this.value)">
+          </div>
+          <div class="filter-pills">
+            <button class="pill active" onclick="setFiltroStatus('todos',this)">Todos</button>
+            <button class="pill" onclick="setFiltroStatus('ok',this)">Em dia</button>
+            <button class="pill" onclick="setFiltroStatus('pendente',this)">Pendentes</button>
+            <button class="pill" onclick="setFiltroStatus('sem',this)">Sem CND</button>
+          </div>
+          <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="showView('clientes',document.querySelectorAll('.nav-item')[1]);abrirModalCliente()">
+            <svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12"/></svg>
+            Novo cliente
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <div class="table-header">
+            <span class="table-title">Visão geral</span>
+            <span class="table-count" id="dash-count">0 clientes</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Razão social</th>
+                <th>CNPJ</th>
+                <th>UF</th>
+                <th>Fed</th>
+                <th>Est</th>
+                <th>Mun</th>
+                <th>Trab</th>
+                <th>FGTS</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="dash-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── CLIENTES ── -->
+      <div class="view" id="view-clientes">
+        <div class="toolbar">
+          <div class="search-wrap">
+            <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4"/><path d="M10.5 10.5L14 14"/></svg>
+            <input class="search-input" id="cli-search" placeholder="Buscar por razão social ou CNPJ..." oninput="filtrarClientes(this.value)">
+          </div>
+          <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="abrirModalCliente()">
+            <svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12"/></svg>
+            Novo cliente
+          </button>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <span class="table-title">Base de clientes</span>
+            <span class="table-count" id="cli-count">0 clientes</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Razão social</th>
+                <th>CNPJ</th>
+                <th>Estado</th>
+                <th>Município</th>
+                <th>E-mail</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="cli-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── PENDENTES ── -->
+      <div class="view" id="view-pendentes">
+        <div class="table-wrap">
+          <div class="table-header">
+            <span class="table-title">Certidões pendentes</span>
+            <span class="table-count" id="pend-count">0 pendências</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>CNPJ</th>
+                <th>Certidões pendentes</th>
+                <th>Mês</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="pend-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── DETALHE CLIENTE ── -->
+      <div class="view" id="view-detalhe">
+        <div style="margin-bottom:16px">
+          <button class="btn btn-ghost btn-sm" onclick="voltarParaClientes()">
+            <svg viewBox="0 0 16 16"><path d="M10 4L6 8l4 4"/></svg>
+            Voltar
+          </button>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title" id="det-nome">—</div>
+              <div class="panel-sub" id="det-cnpj">—</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-ghost btn-sm" onclick="editarClienteAtual()">
+                <svg viewBox="0 0 16 16"><path d="M11 2l3 3-9 9H2v-3L11 2z"/></svg>
+                Editar
+              </button>
+            </div>
+          </div>
+
+          <!-- MÊS ATUAL -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:13px;font-weight:600">Certidões — <span id="det-mes-atual"></span></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="btn btn-ghost btn-sm" onclick="mesAnterior()">‹</button>
+              <span id="det-mes-nav" style="font-size:13px;font-family:var(--mono);min-width:70px;text-align:center"></span>
+              <button class="btn btn-ghost btn-sm" onclick="mesSeguinte()">›</button>
+            </div>
+          </div>
+
+          <div class="cert-grid" id="det-cert-grid"></div>
+        </div>
+
+        <!-- HISTÓRICO -->
+        <div class="panel">
+          <div style="font-size:13px;font-weight:600;margin-bottom:14px">Histórico completo</div>
+          <div id="det-historico"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: NOVO/EDITAR CLIENTE -->
+<div class="overlay" id="modal-cliente">
+  <div class="modal">
+    <button class="close-x" onclick="fecharModal('modal-cliente')">×</button>
+    <div class="modal-title" id="modal-cli-title">Novo cliente</div>
+    <div class="modal-sub">Preencha os dados do cliente</div>
+    <input type="hidden" id="form-cli-id">
+    <div class="form-grid form-2" style="margin-bottom:14px">
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">Razão social *</label>
+        <input class="form-input" id="form-razao" placeholder="Nome completo da empresa">
+      </div>
+      <div class="form-group">
+        <label class="form-label">CNPJ *</label>
+        <input class="form-input" id="form-cnpj" placeholder="00.000.000/0000-00" oninput="mascararCNPJ(this)">
+      </div>
+      <div class="form-group">
+        <label class="form-label">E-mail</label>
+        <input class="form-input" id="form-email" placeholder="contato@empresa.com" type="email">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Telefone</label>
+        <input class="form-input" id="form-tel" placeholder="(11) 99999-9999">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Estado</label>
+        <select class="form-select" id="form-estado">
+          <option value="">Selecione</option>
+          <option>AC</option><option>AL</option><option>AM</option><option>AP</option>
+          <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+          <option>GO</option><option>MA</option><option>MG</option><option>MS</option>
+          <option>MT</option><option>PA</option><option>PB</option><option>PE</option>
+          <option>PI</option><option>PR</option><option>RJ</option><option>RN</option>
+          <option>RO</option><option>RR</option><option>RS</option><option>SC</option>
+          <option selected>SP</option><option>SE</option><option>TO</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Município</label>
+        <input class="form-input" id="form-municipio" placeholder="São Paulo">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Inscrição estadual</label>
+        <input class="form-input" id="form-ie" placeholder="000.000.000.000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Inscrição municipal</label>
+        <input class="form-input" id="form-im" placeholder="00000000">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModal('modal-cliente')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCliente()">Salvar cliente</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: UPLOAD CND -->
+<div class="overlay" id="modal-upload">
+  <div class="modal" style="width:420px">
+    <button class="close-x" onclick="fecharModal('modal-upload')">×</button>
+    <div class="modal-title" id="upload-title">Upload de CND</div>
+    <div class="modal-sub" id="upload-sub">Selecione o PDF da certidão</div>
+    <input type="hidden" id="upload-tipo">
+    <input type="hidden" id="upload-mes">
+    <div class="upload-area" onclick="document.getElementById('file-input').click()" id="upload-area">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <p>Clique para selecionar o PDF</p>
+      <span>ou arraste o arquivo aqui</span>
+    </div>
+    <input type="file" id="file-input" accept=".pdf" style="display:none" onchange="arquivoSelecionado(this)">
+    <div id="arquivo-info" style="display:none;margin-top:12px;padding:10px 14px;background:var(--ok-bg);border:1px solid var(--ok-border);border-radius:var(--radius);font-size:13px;color:var(--ok)"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModal('modal-upload')">Cancelar</button>
+      <button class="btn btn-primary" onclick="fazerUpload()" id="btn-upload" disabled>
+        <svg viewBox="0 0 16 16"><path d="M8 2v8M4 6l4-4 4 4M2 12h12"/></svg>
+        Enviar para o Drive
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <svg viewBox="0 0 16 16" style="width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;flex-shrink:0"><path d="M3 8l3 3 7-7"/></svg>
+  <span id="toast-msg"></span>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+// CONFIGURAÇÕES
+// ══════════════════════════════════════════
+const CONFIG = {
+  CLIENT_ID: '559821192432-o9o9h2d0o2ai2poh1f08nk0d63b9s7g8.apps.googleusercontent.com',
+  SHEETS_ID: '1fak1-uc_ci3B7KiXHkR5SVdl8p1vvJyvKI4F64uzvLc',
+  DRIVE_FOLDER_ID: '19tIWWTCKB_7yMZVLDPafFqCw4-azz9Qi',
+  SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+  USUARIOS: {
+    'admin': 'lsa@2026',
+    'mauricio': 'cnd@lsa'
+  },
+  TIPOS_CND: ['Federal', 'Estadual', 'Municipal', 'Trabalhista', 'FGTS']
+};
+
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+let state = {
+  clientes: [],
+  certidoes: [],
+  clienteAtual: null,
+  mesAtual: mesHoje(),
+  filtroStatus: 'todos',
+  googleToken: null,
+  tokenClient: null
+};
+
+function mesHoje() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+// ══════════════════════════════════════════
+// LOGIN
+// ══════════════════════════════════════════
+function fazerLogin() {
+  const u = document.getElementById('login-user').value.trim();
+  const p = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-error');
+  if (CONFIG.USUARIOS[u] && CONFIG.USUARIOS[u] === p) {
+    document.getElementById('login-screen').style.display = 'none';
+    sessionStorage.setItem('lsa_auth', u);
+    document.getElementById('sidebar-name').textContent = u === 'admin' ? 'Administrador' : u;
+    document.getElementById('sidebar-avatar').textContent = u.substring(0,2).toUpperCase();
+    err.style.display = 'none';
+    iniciarApp();
+  } else {
+    err.style.display = 'block';
+  }
+}
+
+function fazerLogout() {
+  sessionStorage.removeItem('lsa_auth');
+  location.reload();
+}
+
+// Verifica sessão
+if (sessionStorage.getItem('lsa_auth')) {
+  const u = sessionStorage.getItem('lsa_auth');
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('sidebar-name').textContent = u === 'admin' ? 'Administrador' : u;
+  document.getElementById('sidebar-avatar').textContent = u.substring(0,2).toUpperCase();
+  window.addEventListener('load', iniciarApp);
+}
+
+// ══════════════════════════════════════════
+// GOOGLE API
+// ══════════════════════════════════════════
+function iniciarApp() {
+  mostrarLoading('Carregando...');
+  const script = document.createElement('script');
+  script.src = 'https://accounts.google.com/gsi/client';
+  script.onload = () => {
+    const gapi = document.createElement('script');
+    gapi.src = 'https://apis.google.com/js/api.js';
+    gapi.onload = () => {
+      window.gapi.load('client', async () => {
+        await window.gapi.client.init({
+          discoveryDocs: [
+            'https://sheets.googleapis.com/$discovery/rest?version=v4',
+            'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
+          ]
+        });
+        // Token salvo?
+        const token = sessionStorage.getItem('google_token');
+        const expiry = sessionStorage.getItem('google_expiry');
+        if (token && expiry && Date.now() < parseInt(expiry)) {
+          state.googleToken = token;
+          window.gapi.client.setToken({access_token: token});
+          esconderLoading();
+          carregarDados();
+        } else {
+          esconderLoading();
+          document.getElementById('google-banner').classList.add('show');
+          carregarDadosLocais();
+        }
+      });
+    };
+    document.head.appendChild(gapi);
+
+    state.tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: CONFIG.CLIENT_ID,
+      scope: CONFIG.SCOPES,
+      callback: (resp) => {
+        if (resp.error) { mostrarToast('Erro ao conectar Google: ' + resp.error); return; }
+        state.googleToken = resp.access_token;
+        sessionStorage.setItem('google_token', resp.access_token);
+        sessionStorage.setItem('google_expiry', Date.now() + (resp.expires_in * 1000));
+        window.gapi.client.setToken({access_token: resp.access_token});
+        document.getElementById('google-banner').classList.remove('show');
+        mostrarToast('✅ Google conectado!');
+        carregarDados();
+      }
+    });
+  };
+  document.head.appendChild(script);
+}
+
+function iniciarGoogleAuth() {
+  if (state.tokenClient) state.tokenClient.requestAccessToken({prompt: 'consent'});
+}
+
+// ══════════════════════════════════════════
+// DADOS — GOOGLE SHEETS
+// ══════════════════════════════════════════
+async function carregarDados() {
+  mostrarLoading('Carregando dados...');
+  try {
+    // Clientes
+    const rCli = await window.gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: CONFIG.SHEETS_ID,
+      range: 'CLIENTES!A2:K'
+    });
+    const rowsCli = rCli.result.values || [];
+    state.clientes = rowsCli.map(r => ({
+      id: r[0]||'', cnpj: r[1]||'', razao_social: r[2]||'', estado: r[3]||'',
+      municipio: r[4]||'', inscricao_estadual: r[5]||'', inscricao_municipal: r[6]||'',
+      email: r[7]||'', telefone: r[8]||'', ativo: r[9]||'sim', data_cadastro: r[10]||''
+    })).filter(c => c.cnpj);
+
+    // Certidões
+    const rCert = await window.gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: CONFIG.SHEETS_ID,
+      range: 'CERTIDOES!A2:H'
+    });
+    const rowsCert = rCert.result.values || [];
+    state.certidoes = rowsCert.map(r => ({
+      id: r[0]||'', cliente_id: r[1]||'', tipo: r[2]||'', mes_ano: r[3]||'',
+      status: r[4]||'pendente', data_upload: r[5]||'', link_drive: r[6]||'', observacao: r[7]||''
+    })).filter(c => c.cliente_id);
+
+    atualizarUI();
+    esconderLoading();
+  } catch(e) {
+    esconderLoading();
+    if (e.status === 401) { iniciarGoogleAuth(); return; }
+    mostrarToast('Erro ao carregar dados: ' + e.message);
+    carregarDadosLocais();
+  }
+}
+
+function carregarDadosLocais() {
+  // Fallback local storage
+  try {
+    state.clientes = JSON.parse(localStorage.getItem('lsa_clientes') || '[]');
+    state.certidoes = JSON.parse(localStorage.getItem('lsa_certidoes') || '[]');
+  } catch(e) {}
+  atualizarUI();
+}
+
+function salvarLocal() {
+  localStorage.setItem('lsa_clientes', JSON.stringify(state.clientes));
+  localStorage.setItem('lsa_certidoes', JSON.stringify(state.certidoes));
+}
+
+// ══════════════════════════════════════════
+// CRUD CLIENTES
+// ══════════════════════════════════════════
+async function salvarCliente() {
+  const id_edit = document.getElementById('form-cli-id').value;
+  const cnpj = document.getElementById('form-cnpj').value.trim();
+  const razao = document.getElementById('form-razao').value.trim();
+  if (!cnpj || !razao) { mostrarToast('CNPJ e Razão Social são obrigatórios'); return; }
+
+  mostrarLoading('Salvando cliente...');
+
+  const cliente = {
+    id: id_edit || 'CLI' + Date.now(),
+    cnpj, razao_social: razao,
+    estado: document.getElementById('form-estado').value,
+    municipio: document.getElementById('form-municipio').value.trim(),
+    inscricao_estadual: document.getElementById('form-ie').value.trim(),
+    inscricao_municipal: document.getElementById('form-im').value.trim(),
+    email: document.getElementById('form-email').value.trim(),
+    telefone: document.getElementById('form-tel').value.trim(),
+    ativo: 'sim',
+    data_cadastro: id_edit ? (state.clientes.find(c=>c.id===id_edit)?.data_cadastro||new Date().toLocaleDateString('pt-BR')) : new Date().toLocaleDateString('pt-BR')
+  };
+
+  const row = [cliente.id, cliente.cnpj, cliente.razao_social, cliente.estado, cliente.municipio,
+    cliente.inscricao_estadual, cliente.inscricao_municipal, cliente.email, cliente.telefone,
+    cliente.ativo, cliente.data_cadastro];
+
+  try {
+    if (state.googleToken) {
+      if (id_edit) {
+        // Encontra linha e atualiza
+        const idx = state.clientes.findIndex(c=>c.id===id_edit);
+        if (idx >= 0) {
+          await window.gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: CONFIG.SHEETS_ID,
+            range: `CLIENTES!A${idx+2}:K${idx+2}`,
+            valueInputOption: 'RAW',
+            resource: {values: [row]}
+          });
+          state.clientes[idx] = cliente;
+        }
+      } else {
+        await window.gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: CONFIG.SHEETS_ID,
+          range: 'CLIENTES!A:K',
+          valueInputOption: 'RAW',
+          insertDataOption: 'INSERT_ROWS',
+          resource: {values: [row]}
+        });
+        state.clientes.push(cliente);
+      }
+    } else {
+      if (id_edit) { const idx = state.clientes.findIndex(c=>c.id===id_edit); if(idx>=0) state.clientes[idx]=cliente; }
+      else state.clientes.push(cliente);
+      salvarLocal();
+    }
+    fecharModal('modal-cliente');
+    atualizarUI();
+    mostrarToast(id_edit ? '✅ Cliente atualizado!' : '✅ Cliente cadastrado!');
+  } catch(e) {
+    mostrarToast('Erro ao salvar: ' + e.message);
+  }
+  esconderLoading();
+}
+
+// ══════════════════════════════════════════
+// UPLOAD PDF → GOOGLE DRIVE
+// ══════════════════════════════════════════
+let arquivoAtual = null;
+
+function arquivoSelecionado(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.type !== 'application/pdf') { mostrarToast('Apenas arquivos PDF são aceitos'); return; }
+  arquivoAtual = file;
+  const info = document.getElementById('arquivo-info');
+  info.style.display = 'block';
+  info.textContent = `📄 ${file.name} (${(file.size/1024).toFixed(0)} KB)`;
+  document.getElementById('btn-upload').disabled = false;
+}
+
+async function fazerUpload() {
+  if (!arquivoAtual) return;
+  const tipo = document.getElementById('upload-tipo').value;
+  const mes = document.getElementById('upload-mes').value;
+  const cliente = state.clienteAtual;
+
+  mostrarLoading('Enviando para o Google Drive...');
+  fecharModal('modal-upload');
+
+  try {
+    let linkDrive = '';
+
+    if (state.googleToken) {
+      // Cria pasta do cliente se não existir
+      const nomePasta = `${cliente.cnpj} - ${cliente.razao_social}`;
+      const nomeMes = mes;
+
+      // Busca/cria pasta do cliente
+      let pastaClienteId = await buscarOuCriarPasta(nomePasta, CONFIG.DRIVE_FOLDER_ID);
+      // Busca/cria pasta do mês
+      let pastaMesId = await buscarOuCriarPasta(nomeMes, pastaClienteId);
+
+      // Upload do PDF
+      const nomeArquivo = `CND_${tipo}_${mes}.pdf`;
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify({
+        name: nomeArquivo,
+        parents: [pastaMesId],
+        mimeType: 'application/pdf'
+      })], {type: 'application/json'}));
+      form.append('file', arquivoAtual);
+
+      const resp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+        method: 'POST',
+        headers: {Authorization: `Bearer ${state.googleToken}`},
+        body: form
+      });
+      const data = await resp.json();
+      linkDrive = data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
+    }
+
+    // Salva no Sheets / local
+    const certId = 'CERT' + Date.now();
+    const cert = {
+      id: certId,
+      cliente_id: cliente.id,
+      tipo,
+      mes_ano: mes,
+      status: 'em_dia',
+      data_upload: new Date().toLocaleDateString('pt-BR'),
+      link_drive: linkDrive,
+      observacao: ''
+    };
+
+    // Remove certidão anterior do mesmo tipo/mês se existir
+    state.certidoes = state.certidoes.filter(c => !(c.cliente_id===cliente.id && c.tipo===tipo && c.mes_ano===mes));
+    state.certidoes.push(cert);
+
+    if (state.googleToken) {
+      // Salva no Sheets
+      const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao];
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: CONFIG.SHEETS_ID,
+        range: 'CERTIDOES!A:H',
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        resource: {values: [row]}
+      });
+    } else {
+      salvarLocal();
+    }
+
+    atualizarUI();
+    renderizarDetalheCliente();
+    mostrarToast('✅ CND enviada com sucesso!');
+  } catch(e) {
+    mostrarToast('Erro no upload: ' + e.message);
+  }
+
+  arquivoAtual = null;
+  document.getElementById('file-input').value = '';
+  esconderLoading();
+}
+
+async function buscarOuCriarPasta(nome, parentId) {
+  const q = `name='${nome}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const resp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
+    headers: {Authorization: `Bearer ${state.googleToken}`}
+  });
+  const data = await resp.json();
+  if (data.files && data.files.length > 0) return data.files[0].id;
+
+  // Cria a pasta
+  const criar = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {'Authorization': `Bearer ${state.googleToken}`, 'Content-Type': 'application/json'},
+    body: JSON.stringify({name: nome, mimeType: 'application/vnd.google-apps.folder', parents: [parentId]})
+  });
+  const nova = await criar.json();
+  return nova.id;
+}
+
+// ══════════════════════════════════════════
+// UI — RENDER
+// ══════════════════════════════════════════
+function atualizarUI() {
+  renderizarDashboard();
+  renderizarClientes();
+  renderizarPendentes();
+  atualizarStats();
+}
+
+function atualizarStats() {
+  const ativos = state.clientes.filter(c => c.ativo === 'sim');
+  const comTodasOk = ativos.filter(c => todasCertidonesOk(c.id, state.mesAtual));
+  const comPendente = ativos.filter(c => temPendente(c.id, state.mesAtual));
+  const semNenhuma = ativos.filter(c => semCertidoes(c.id, state.mesAtual));
+
+  document.getElementById('stat-total').textContent = ativos.length;
+  document.getElementById('stat-ok').textContent = comTodasOk.length;
+  document.getElementById('stat-pendente').textContent = comPendente.length;
+  document.getElementById('stat-sem').textContent = semNenhuma.length;
+
+  const badge = document.getElementById('badge-pendentes');
+  if (comPendente.length > 0) {
+    badge.textContent = comPendente.length;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function getCertidao(clienteId, tipo, mes) {
+  return state.certidoes.find(c => c.cliente_id === clienteId && c.tipo === tipo && c.mes_ano === mes);
+}
+
+function todasCertidonesOk(clienteId, mes) {
+  return CONFIG.TIPOS_CND.every(t => {
+    const c = getCertidao(clienteId, t, mes);
+    return c && c.status === 'em_dia';
+  });
+}
+
+function temPendente(clienteId, mes) {
+  return CONFIG.TIPOS_CND.some(t => {
+    const c = getCertidao(clienteId, t, mes);
+    return !c || c.status !== 'em_dia';
+  });
+}
+
+function semCertidoes(clienteId, mes) {
+  return CONFIG.TIPOS_CND.every(t => !getCertidao(clienteId, t, mes));
+}
+
+function statusCliente(clienteId, mes) {
+  if (todasCertidonesOk(clienteId, mes)) return 'ok';
+  if (semCertidoes(clienteId, mes)) return 'sem';
+  return 'pendente';
+}
+
+function certDot(clienteId, tipo, mes) {
+  const c = getCertidao(clienteId, tipo, mes);
+  const cls = c ? (c.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
+  const abrev = {Federal:'Fed',Estadual:'Est',Municipal:'Mun',Trabalhista:'Trab',FGTS:'FGTS'}[tipo];
+  return `<div class="cert-dot ${cls}" title="${tipo}: ${c ? c.status : 'pendente'}">${abrev}</div>`;
+}
+
+// ── DASHBOARD TABLE ──
+function renderizarDashboard() {
+  const tbody = document.getElementById('dash-table');
+  const q = document.getElementById('dash-search')?.value.toLowerCase() || '';
+  let clientes = state.clientes.filter(c => c.ativo === 'sim');
+
+  if (q) clientes = clientes.filter(c => c.razao_social.toLowerCase().includes(q) || c.cnpj.includes(q));
+  if (state.filtroStatus !== 'todos') {
+    clientes = clientes.filter(c => {
+      const s = statusCliente(c.id, state.mesAtual);
+      return s === state.filtroStatus;
+    });
+  }
+
+  document.getElementById('dash-count').textContent = clientes.length + ' clientes';
+
+  if (!clientes.length) {
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg><p>Nenhum cliente encontrado</p><span>Cadastre o primeiro cliente</span></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = clientes.map(c => {
+    const s = statusCliente(c.id, state.mesAtual);
+    const badge = s === 'ok' ? '<span class="badge badge-ok">Em dia</span>' :
+                  s === 'sem' ? '<span class="badge badge-gray">Sem CND</span>' :
+                  '<span class="badge badge-warn">Pendente</span>';
+    return `<tr onclick="abrirDetalhe('${c.id}')">
+      <td><strong>${c.razao_social}</strong></td>
+      <td><span class="mono">${c.cnpj}</span></td>
+      <td>${c.estado}</td>
+      ${CONFIG.TIPOS_CND.map(t => `<td>${certDot(c.id,t,state.mesAtual)}</td>`).join('')}
+      <td>${badge}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Ver</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── CLIENTES TABLE ──
+function renderizarClientes() {
+  const tbody = document.getElementById('cli-table');
+  const q = document.getElementById('cli-search')?.value.toLowerCase() || '';
+  let clientes = state.clientes.filter(c => c.ativo === 'sim');
+  if (q) clientes = clientes.filter(c => c.razao_social.toLowerCase().includes(q) || c.cnpj.includes(q));
+
+  document.getElementById('cli-count').textContent = clientes.length + ' clientes';
+
+  if (!clientes.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><p>Nenhum cliente cadastrado</p><span>Clique em "Novo cliente" para começar</span></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = clientes.map(c => `
+    <tr onclick="abrirDetalhe('${c.id}')">
+      <td><strong>${c.razao_social}</strong></td>
+      <td><span class="mono">${c.cnpj}</span></td>
+      <td>${c.estado}</td>
+      <td>${c.municipio}</td>
+      <td>${c.email||'—'}</td>
+      <td><span class="badge badge-ok">Ativo</span></td>
+      <td style="display:flex;gap:5px">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editarCliente('${c.id}')">Editar</button>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Detalhes</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── PENDENTES TABLE ──
+function renderizarPendentes() {
+  const tbody = document.getElementById('pend-table');
+  const clientes = state.clientes.filter(c => c.ativo === 'sim' && temPendente(c.id, state.mesAtual));
+  const pendentes = [];
+  clientes.forEach(c => {
+    const tipos = CONFIG.TIPOS_CND.filter(t => { const cert = getCertidao(c.id,t,state.mesAtual); return !cert || cert.status !== 'em_dia'; });
+    if (tipos.length) pendentes.push({cliente: c, tipos});
+  });
+
+  document.getElementById('pend-count').textContent = pendentes.length + ' pendências';
+
+  if (!pendentes.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>Tudo em dia!</p><span>Nenhuma certidão pendente este mês</span></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = pendentes.map(({cliente:c, tipos}) => `
+    <tr onclick="abrirDetalhe('${c.id}')">
+      <td><strong>${c.razao_social}</strong></td>
+      <td><span class="mono">${c.cnpj}</span></td>
+      <td><div style="display:flex;gap:4px;flex-wrap:wrap">${tipos.map(t=>`<span class="badge badge-warn">${t}</span>`).join('')}</div></td>
+      <td><span class="mono">${state.mesAtual}</span></td>
+      <td><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Resolver</button></td>
+    </tr>
+  `).join('');
+}
+
+// ── DETALHE CLIENTE ──
+function abrirDetalhe(id) {
+  state.clienteAtual = state.clientes.find(c => c.id === id);
+  if (!state.clienteAtual) return;
+  state.mesAtual = mesHoje();
+  showView('detalhe', null);
+  renderizarDetalheCliente();
+}
+
+function renderizarDetalheCliente() {
+  const c = state.clienteAtual;
+  if (!c) return;
+  document.getElementById('det-nome').textContent = c.razao_social;
+  document.getElementById('det-cnpj').textContent = c.cnpj + (c.estado ? ' · ' + c.estado : '') + (c.municipio ? ' · ' + c.municipio : '');
+  document.getElementById('det-mes-nav').textContent = state.mesAtual;
+
+  // Certidões do mês
+  const grid = document.getElementById('det-cert-grid');
+  grid.innerHTML = CONFIG.TIPOS_CND.map(tipo => {
+    const cert = getCertidao(c.id, tipo, state.mesAtual);
+    const cls = cert ? (cert.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
+    const statusTxt = cert ? (cert.status === 'em_dia' ? 'Em dia' : 'Pendente') : 'Não emitida';
+    return `
+      <div class="cert-card ${cls}">
+        <div class="cert-name">${tipo}</div>
+        <div class="cert-status">${statusTxt}</div>
+        <div class="cert-date">${cert ? cert.data_upload : '—'}</div>
+        <div class="cert-actions">
+          ${cert && cert.link_drive ? `<a href="${cert.link_drive}" target="_blank" class="cert-btn">Ver PDF</a>` : ''}
+          <button class="cert-btn upload-btn" onclick="abrirUpload('${tipo}','${state.mesAtual}')">
+            ${cert ? 'Substituir PDF' : 'Upload PDF'}
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Histórico
+  const meses = [...new Set(state.certidoes.filter(c2 => c2.cliente_id === c.id).map(c2 => c2.mes_ano))].sort().reverse();
+  const hist = document.getElementById('det-historico');
+  if (!meses.length) {
+    hist.innerHTML = '<div class="empty"><p>Nenhum histórico ainda</p><span>Faça o upload das certidões para começar</span></div>';
+    return;
+  }
+  hist.innerHTML = meses.map(mes => `
+    <div class="hist-row">
+      <span class="hist-mes">${mes}</span>
+      <div class="hist-certs">
+        ${CONFIG.TIPOS_CND.map(tipo => {
+          const cert = getCertidao(c.id, tipo, mes);
+          const cls = cert ? (cert.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
+          return `<div class="cert-dot ${cls}" title="${tipo}">${tipo.substring(0,3)}</div>`;
+        }).join('')}
+      </div>
+      <div class="hist-action">
+        <button class="btn btn-ghost btn-sm" onclick="state.mesAtual='${mes}';renderizarDetalheCliente()">Ver mês</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function mesAnterior() {
+  const [y,m] = state.mesAtual.split('-').map(Number);
+  const d = new Date(y, m-2, 1);
+  state.mesAtual = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  renderizarDetalheCliente();
+}
+
+function mesSeguinte() {
+  const [y,m] = state.mesAtual.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  state.mesAtual = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  renderizarDetalheCliente();
+}
+
+// ══════════════════════════════════════════
+// MODAIS
+// ══════════════════════════════════════════
+function abrirModalCliente() {
+  document.getElementById('modal-cli-title').textContent = 'Novo cliente';
+  document.getElementById('form-cli-id').value = '';
+  ['form-razao','form-cnpj','form-email','form-tel','form-municipio','form-ie','form-im'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('form-estado').value = 'SP';
+  document.getElementById('modal-cliente').classList.add('open');
+}
+
+function editarCliente(id) {
+  const c = state.clientes.find(c => c.id === id);
+  if (!c) return;
+  document.getElementById('modal-cli-title').textContent = 'Editar cliente';
+  document.getElementById('form-cli-id').value = c.id;
+  document.getElementById('form-razao').value = c.razao_social;
+  document.getElementById('form-cnpj').value = c.cnpj;
+  document.getElementById('form-email').value = c.email;
+  document.getElementById('form-tel').value = c.telefone;
+  document.getElementById('form-estado').value = c.estado;
+  document.getElementById('form-municipio').value = c.municipio;
+  document.getElementById('form-ie').value = c.inscricao_estadual;
+  document.getElementById('form-im').value = c.inscricao_municipal;
+  document.getElementById('modal-cliente').classList.add('open');
+}
+
+function editarClienteAtual() {
+  if (state.clienteAtual) editarCliente(state.clienteAtual.id);
+}
+
+function abrirUpload(tipo, mes) {
+  document.getElementById('upload-tipo').value = tipo;
+  document.getElementById('upload-mes').value = mes;
+  document.getElementById('upload-title').textContent = `Upload — CND ${tipo}`;
+  document.getElementById('upload-sub').textContent = `${state.clienteAtual?.razao_social} · ${mes}`;
+  document.getElementById('arquivo-info').style.display = 'none';
+  document.getElementById('btn-upload').disabled = true;
+  arquivoAtual = null;
+  document.getElementById('file-input').value = '';
+  document.getElementById('modal-upload').classList.add('open');
+}
+
+function fecharModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// Drag & drop upload
+const uploadArea = document.getElementById('upload-area');
+if (uploadArea) {
+  uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.style.borderColor='var(--blue)'; });
+  uploadArea.addEventListener('dragleave', () => { uploadArea.style.borderColor=''; });
+  uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.style.borderColor = '';
+    const file = e.dataTransfer.files[0];
+    if (file) { document.getElementById('file-input').files = e.dataTransfer.files; arquivoSelecionado(document.getElementById('file-input')); }
+  });
+}
+
+// ══════════════════════════════════════════
+// NAVEGAÇÃO
+// ══════════════════════════════════════════
+const pageInfo = {
+  dashboard: ['Dashboard', '— visão geral'],
+  clientes: ['Clientes', '— base de dados'],
+  pendentes: ['Pendentes', '— certidões em aberto'],
+  detalhe: ['Detalhe', '— certidões do cliente']
+};
+
+function showView(id, navEl) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const el = document.getElementById('view-' + id);
+  if (el) el.classList.add('active');
+  if (navEl) navEl.classList.add('active');
+  const info = pageInfo[id] || ['',''];
+  document.getElementById('page-title').textContent = info[0];
+  document.getElementById('page-sub').textContent = info[1];
+  if (id !== 'detalhe') state.mesAtual = mesHoje();
+}
+
+function voltarParaClientes() {
+  showView('clientes', document.querySelectorAll('.nav-item')[1]);
+  state.clienteAtual = null;
+}
+
+// ══════════════════════════════════════════
+// FILTROS
+// ══════════════════════════════════════════
+function filtrarDashboard(q) { renderizarDashboard(); }
+function filtrarClientes(q) { renderizarClientes(); }
+function setFiltroStatus(f, el) {
+  state.filtroStatus = f;
+  document.querySelectorAll('.filter-pills .pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  renderizarDashboard();
+}
+
+// ══════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════
+function mascararCNPJ(input) {
+  let v = input.value.replace(/\D/g,'');
+  if (v.length > 14) v = v.substring(0,14);
+  v = v.replace(/^(\d{2})(\d)/, '$1.$2');
+  v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+  v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
+  v = v.replace(/(\d{4})(\d)/, '$1-$2');
+  input.value = v;
+}
+
+function mostrarToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+function mostrarLoading(msg='Carregando...') {
+  document.getElementById('loading-msg').textContent = msg;
+  document.getElementById('loading').classList.add('show');
+}
+
+function esconderLoading() {
+  document.getElementById('loading').classList.remove('show');
+}
+</script>
+</body>
+</html>
