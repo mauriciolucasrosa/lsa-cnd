@@ -85,7 +85,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 
 /* ── STATS ── */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px}
+.stat-clickable{cursor:pointer}
 .stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;box-shadow:var(--shadow);transition:.2s}
 .stat:hover{box-shadow:var(--shadow-md);transform:translateY(-1px)}
 .stat-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
@@ -179,6 +180,8 @@ tr:hover td{background:#fafbfc;cursor:pointer}
 .cert-btn:hover{background:var(--blue-light);border-color:#bcd0f7}
 .cert-btn.upload-btn{color:var(--ok);border-color:var(--ok-border)}
 .cert-btn.upload-btn:hover{background:var(--ok-bg)}
+.cert-btn.remove-btn{color:var(--err);border-color:var(--err-border)}
+.cert-btn.remove-btn:hover{background:var(--err-bg)}
 
 /* ── HISTÓRICO ── */
 .hist-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
@@ -298,7 +301,7 @@ tr:hover td{background:#fafbfc;cursor:pointer}
         Clientes
       </div>
       <div class="nav-label">Certidões</div>
-      <div class="nav-item" onclick="showView('pendentes',this)">
+      <div class="nav-item" onclick="abrirPendentes(null,this)">
         <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
         Pendentes
         <span id="badge-pendentes" style="margin-left:auto;background:var(--warn);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;display:none">0</span>
@@ -360,6 +363,18 @@ tr:hover td{background:#fafbfc;cursor:pointer}
             <div class="stat-value" id="stat-sem">0</div>
             <div class="stat-sub">nenhuma CND</div>
           </div>
+          <div class="stat warn stat-clickable" onclick="abrirPendentes('vencendo')" title="Clique para ver os clientes">
+            <div class="stat-icon"><svg viewBox="0 0 16 16"><path d="M8 3v4M8 10v1"/><circle cx="8" cy="8" r="6"/></svg></div>
+            <div class="stat-label">CNDs a vencer</div>
+            <div class="stat-value" id="stat-vencendo">0</div>
+            <div class="stat-sub">nos próximos <span id="stat-vencendo-dias">15</span> dias</div>
+          </div>
+          <div class="stat err stat-clickable" onclick="abrirPendentes('vencida')" title="Clique para ver os clientes">
+            <div class="stat-icon"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></div>
+            <div class="stat-label">CNDs vencidas</div>
+            <div class="stat-value" id="stat-vencida">0</div>
+            <div class="stat-sub">precisam de emissão urgente</div>
+          </div>
         </div>
 
         <div class="toolbar">
@@ -411,7 +426,8 @@ tr:hover td{background:#fafbfc;cursor:pointer}
             <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4"/><path d="M10.5 10.5L14 14"/></svg>
             <input class="search-input" id="cli-search" placeholder="Buscar por razão social ou CNPJ..." oninput="filtrarClientes(this.value)">
           </div>
-          <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="abrirModalCliente()">
+          <button class="pill" id="pill-inativos" style="margin-left:auto" onclick="toggleMostrarInativos()">Mostrar inativos</button>
+          <button class="btn btn-primary btn-sm" onclick="abrirModalCliente()">
             <svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12"/></svg>
             Novo cliente
           </button>
@@ -442,7 +458,7 @@ tr:hover td{background:#fafbfc;cursor:pointer}
       <div class="view" id="view-pendentes">
         <div class="table-wrap">
           <div class="table-header">
-            <span class="table-title">Certidões pendentes</span>
+            <span class="table-title" id="pend-title">Certidões pendentes</span>
             <span class="table-count" id="pend-count">0 pendências</span>
           </div>
           <table>
@@ -479,6 +495,12 @@ tr:hover td{background:#fafbfc;cursor:pointer}
               <button class="btn btn-ghost btn-sm" onclick="editarClienteAtual()">
                 <svg viewBox="0 0 16 16"><path d="M11 2l3 3-9 9H2v-3L11 2z"/></svg>
                 Editar
+              </button>
+              <button class="btn btn-ghost btn-sm" id="btn-toggle-ativo" onclick="alternarAtivoClienteAtual()">
+                Desativar
+              </button>
+              <button class="btn btn-danger btn-sm" onclick="removerClienteAtual()">
+                Remover
               </button>
             </div>
           </div>
@@ -625,6 +647,8 @@ let state = {
   clienteAtual: null,
   mesAtual: mesHoje(),
   filtroStatus: 'todos',
+  mostrarInativos: false, // toggle da lista de Clientes: inclui clientes desativados
+  filtroVenc: null,       // null | 'vencida' | 'vencendo' — usado ao abrir a view Pendentes a partir dos cards do dashboard
   googleToken: null,
   tokenClient: null
 };
@@ -802,7 +826,13 @@ function iniciarGoogleAuth() {
     mostrarToast('O login do Google ainda está carregando. Aguarde alguns segundos e tente novamente.');
     return;
   }
-  state.tokenClient.requestAccessToken({prompt: 'consent'});
+  // prompt:'' deixa o Google decidir a UI mínima necessária: na primeira vez
+  // (sem autorização prévia) ele mostra a tela de permissões normalmente;
+  // depois que o usuário já autorizou uma vez, reconexões (token expirado
+  // após ~1h, ou clique manual) tendem a ser silenciosas/rápidas, sem pedir
+  // pra clicar em "Permitir" de novo toda hora. Com prompt:'consent' (como
+  // estava antes), o Google é forçado a mostrar a tela completa sempre.
+  state.tokenClient.requestAccessToken({prompt: ''});
 }
 
 // ══════════════════════════════════════════
@@ -931,6 +961,103 @@ async function salvarCliente() {
 }
 
 // ══════════════════════════════════════════
+// ATIVAR / DESATIVAR / REMOVER CLIENTE
+// ══════════════════════════════════════════
+function alternarAtivoClienteAtual() {
+  if (state.clienteAtual) alternarAtivoCliente(state.clienteAtual.id);
+}
+
+function removerClienteAtual() {
+  if (state.clienteAtual) removerCliente(state.clienteAtual.id);
+}
+
+// Desativar é reversível (só muda a coluna "ativo" na planilha) — pensado
+// pra cliente que saiu do escritório mas pode voltar. Um cliente inativo
+// some das listas padrão (Dashboard/Clientes), mas continua acessível pela
+// tela de detalhe e pelo toggle "Mostrar inativos" na lista de Clientes.
+async function alternarAtivoCliente(id) {
+  const idx = state.clientes.findIndex(c => c.id === id);
+  if (idx < 0) return;
+  const cliente = state.clientes[idx];
+  const novoAtivo = cliente.ativo === 'sim' ? 'não' : 'sim';
+  const pergunta = novoAtivo === 'sim'
+    ? `Reativar o cliente "${cliente.razao_social}"?`
+    : `Desativar o cliente "${cliente.razao_social}"?\n\nEle vai sumir das listas do Dashboard e de Clientes até ser reativado — os dados e o histórico de certidões continuam guardados.`;
+  if (!confirm(pergunta)) return;
+
+  mostrarLoading(novoAtivo === 'sim' ? 'Reativando...' : 'Desativando...');
+  const atualizado = {...cliente, ativo: novoAtivo};
+  const row = [atualizado.id, atualizado.cnpj, atualizado.razao_social, atualizado.estado, atualizado.municipio,
+    atualizado.inscricao_estadual, atualizado.inscricao_municipal, atualizado.email, atualizado.telefone,
+    atualizado.ativo, atualizado.data_cadastro];
+  try {
+    if (state.googleToken) {
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: CONFIG.SHEETS_ID,
+        range: `CLIENTES!A${idx+2}:K${idx+2}`,
+        valueInputOption: 'RAW',
+        resource: {values: [row]}
+      });
+    } else {
+      salvarLocal();
+    }
+    state.clientes[idx] = atualizado;
+    if (state.clienteAtual && state.clienteAtual.id === id) state.clienteAtual = atualizado;
+    atualizarUI();
+    if (state.clienteAtual && state.clienteAtual.id === id) renderizarDetalheCliente();
+    mostrarToast(novoAtivo === 'sim' ? '✅ Cliente reativado!' : 'Cliente desativado.');
+  } catch (e) {
+    console.error('[Sheets] Erro ao alternar status do cliente:', e);
+    const code = (e && e.status) || (e && e.result && e.result.error && e.result.error.code);
+    if (code === 401) { mostrarToast('Sessão do Google expirou, reconecte e tente de novo.'); esconderLoading(); iniciarGoogleAuth(); return; }
+    mostrarToast('Erro: ' + extrairErroGoogle(e));
+  }
+  esconderLoading();
+}
+
+// Remover apaga a linha do cliente na planilha CLIENTES (pensado pra
+// duplicidade/erro de cadastro). É uma ação destrutiva — por isso confirma
+// antes, avisa se existem certidões vinculadas (elas não são apagadas
+// automaticamente, só ficam órfãs) e recomenda "Desativar" como alternativa
+// reversível. Usamos values.clear (limpa as células) em vez de excluir a
+// linha de verdade — assim não corremos o risco de desalinhar os índices
+// dos outros clientes; recarregamos a lista do zero logo em seguida pra
+// já refletir a remoção.
+async function removerCliente(id) {
+  const idx = state.clientes.findIndex(c => c.id === id);
+  if (idx < 0) return;
+  const cliente = state.clientes[idx];
+  const qtdCertidoes = state.certidoes.filter(c2 => c2.cliente_id === id).length;
+  const aviso = qtdCertidoes > 0
+    ? `\n\nEsse cliente tem ${qtdCertidoes} certidão(ões) no histórico — elas não serão apagadas automaticamente.`
+    : '';
+  if (!confirm(`Remover definitivamente "${cliente.razao_social}" da base de clientes?${aviso}\n\nEssa ação não pode ser desfeita pelo dashboard. Se for um afastamento temporário, use "Desativar" em vez de remover.`)) return;
+
+  mostrarLoading('Removendo cliente...');
+  try {
+    if (state.googleToken) {
+      await window.gapi.client.sheets.spreadsheets.values.clear({
+        spreadsheetId: CONFIG.SHEETS_ID,
+        range: `CLIENTES!A${idx+2}:K${idx+2}`
+      });
+      await carregarDados(); // recarrega do Sheets pra realinhar os índices das linhas
+    } else {
+      state.clientes.splice(idx, 1);
+      salvarLocal();
+    }
+    voltarParaClientes();
+    atualizarUI();
+    mostrarToast('Cliente removido.');
+  } catch (e) {
+    console.error('[Sheets] Erro ao remover cliente:', e);
+    const code = (e && e.status) || (e && e.result && e.result.error && e.result.error.code);
+    if (code === 401) { mostrarToast('Sessão do Google expirou, reconecte e tente de novo.'); esconderLoading(); iniciarGoogleAuth(); return; }
+    mostrarToast('Erro ao remover: ' + extrairErroGoogle(e));
+  }
+  esconderLoading();
+}
+
+// ══════════════════════════════════════════
 // UPLOAD PDF → GOOGLE DRIVE
 // ══════════════════════════════════════════
 let arquivoAtual = null;
@@ -988,10 +1115,13 @@ async function fazerUpload() {
       linkDrive = data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
     }
 
-    // Salva no Sheets / local
-    const certId = 'CERT' + Date.now();
+    // Se já existe uma CND desse tipo/mês, reaproveitamos o mesmo id e
+    // ATUALIZAMOS a linha existente na planilha em vez de criar uma nova —
+    // do jeito que estava antes, "substituir" sempre fazia um append, então
+    // a cada re-envio sobrava uma linha antiga e obsoleta na aba CERTIDOES.
+    const certAnterior = getCertidao(cliente.id, tipo, mes);
     const cert = {
-      id: certId,
+      id: certAnterior ? certAnterior.id : ('CERT' + Date.now()),
       cliente_id: cliente.id,
       tipo,
       mes_ano: mes,
@@ -1002,20 +1132,28 @@ async function fazerUpload() {
       vencimento // AAAA-MM-DD, usado para calcular se a CND está vencida/vencendo
     };
 
-    // Remove certidão anterior do mesmo tipo/mês se existir
     state.certidoes = state.certidoes.filter(c => !(c.cliente_id===cliente.id && c.tipo===tipo && c.mes_ano===mes));
     state.certidoes.push(cert);
 
     if (state.googleToken) {
-      // Salva no Sheets
       const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao, cert.vencimento];
-      await window.gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: CONFIG.SHEETS_ID,
-        range: 'CERTIDOES!A:I',
-        valueInputOption: 'RAW',
-        insertDataOption: 'INSERT_ROWS',
-        resource: {values: [row]}
-      });
+      const linhaExistente = certAnterior ? await buscarLinhaPorId('CERTIDOES', certAnterior.id) : null;
+      if (linhaExistente) {
+        await window.gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: CONFIG.SHEETS_ID,
+          range: `CERTIDOES!A${linhaExistente}:I${linhaExistente}`,
+          valueInputOption: 'RAW',
+          resource: {values: [row]}
+        });
+      } else {
+        await window.gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: CONFIG.SHEETS_ID,
+          range: 'CERTIDOES!A:I',
+          valueInputOption: 'RAW',
+          insertDataOption: 'INSERT_ROWS',
+          resource: {values: [row]}
+        });
+      }
     } else {
       salvarLocal();
     }
@@ -1070,6 +1208,56 @@ async function buscarOuCriarPasta(nome, parentId) {
   return nova.id;
 }
 
+// Busca o número da linha (1-based, contando o cabeçalho) onde a coluna A
+// de uma aba tem exatamente esse id. Não confiamos em índices de array
+// locais pra isso: a ordem do state.certidoes pode não bater com a ordem
+// real da planilha (ex.: depois de excluir uma linha ou de um append
+// antigo), então procuramos pelo id de verdade antes de ler/escrever.
+async function buscarLinhaPorId(aba, id) {
+  const resp = await window.gapi.client.sheets.spreadsheets.values.get({
+    spreadsheetId: CONFIG.SHEETS_ID,
+    range: `${aba}!A:A`
+  });
+  const col = resp.result.values || [];
+  const idx = col.findIndex(r => r[0] === id);
+  return idx >= 0 ? idx + 1 : null;
+}
+
+// Remove uma CND específica: limpa a linha dela na planilha CERTIDOES
+// (o PDF continua no Drive — remover aqui só tira do controle/dashboard,
+// não apaga o arquivo, pra evitar perda de dados por engano) e atualiza a
+// tela. Útil quando a CND venceu e ainda não tem a nova pra substituir, ou
+// quando foi enviado o PDF errado.
+async function removerCertidao(certId) {
+  const cert = state.certidoes.find(c => c.id === certId);
+  if (!cert) return;
+  if (!confirm(`Remover a CND ${cert.tipo} (${cert.mes_ano}) desse cliente?\n\nO PDF continua salvo no Drive — isso só tira o registro do dashboard.`)) return;
+
+  mostrarLoading('Removendo CND...');
+  try {
+    if (state.googleToken) {
+      const linha = await buscarLinhaPorId('CERTIDOES', certId);
+      if (linha) {
+        await window.gapi.client.sheets.spreadsheets.values.clear({
+          spreadsheetId: CONFIG.SHEETS_ID,
+          range: `CERTIDOES!A${linha}:I${linha}`
+        });
+      }
+    }
+    state.certidoes = state.certidoes.filter(c => c.id !== certId);
+    if (!state.googleToken) salvarLocal();
+    atualizarUI();
+    renderizarDetalheCliente();
+    mostrarToast('CND removida.');
+  } catch (e) {
+    console.error('[Sheets] Erro ao remover CND:', e);
+    const code = (e && e.status) || (e && e.result && e.result.error && e.result.error.code);
+    if (code === 401) { mostrarToast('Sessão do Google expirou, reconecte e tente de novo.'); esconderLoading(); iniciarGoogleAuth(); return; }
+    mostrarToast('Erro ao remover: ' + extrairErroGoogle(e));
+  }
+  esconderLoading();
+}
+
 // ══════════════════════════════════════════
 // UI — RENDER
 // ══════════════════════════════════════════
@@ -1085,11 +1273,18 @@ function atualizarStats() {
   const comTodasOk = ativos.filter(c => todasCertidonesOk(c.id, state.mesAtual));
   const comPendente = ativos.filter(c => temPendente(c.id, state.mesAtual));
   const semNenhuma = ativos.filter(c => semCertidoes(c.id, state.mesAtual));
+  // "a vencer" e "vencida" contam clientes distintos com pelo menos uma CND
+  // do mês atual nessa situação (mesmo critério usado em "Pendentes").
+  const comVencendo = ativos.filter(c => CONFIG.TIPOS_CND.some(t => situacaoVencimento(getCertidao(c.id, t, state.mesAtual)) === 'vencendo'));
+  const comVencida = ativos.filter(c => CONFIG.TIPOS_CND.some(t => situacaoVencimento(getCertidao(c.id, t, state.mesAtual)) === 'vencida'));
 
   document.getElementById('stat-total').textContent = ativos.length;
   document.getElementById('stat-ok').textContent = comTodasOk.length;
   document.getElementById('stat-pendente').textContent = comPendente.length;
   document.getElementById('stat-sem').textContent = semNenhuma.length;
+  document.getElementById('stat-vencendo').textContent = comVencendo.length;
+  document.getElementById('stat-vencida').textContent = comVencida.length;
+  document.getElementById('stat-vencendo-dias').textContent = CONFIG.DIAS_ALERTA_VENCIMENTO;
 
   const badge = document.getElementById('badge-pendentes');
   if (comPendente.length > 0) {
@@ -1209,7 +1404,7 @@ function renderizarDashboard() {
 function renderizarClientes() {
   const tbody = document.getElementById('cli-table');
   const q = document.getElementById('cli-search')?.value.toLowerCase() || '';
-  let clientes = state.clientes.filter(c => c.ativo === 'sim');
+  let clientes = state.mostrarInativos ? state.clientes.slice() : state.clientes.filter(c => c.ativo === 'sim');
   if (q) clientes = clientes.filter(c => c.razao_social.toLowerCase().includes(q) || c.cnpj.includes(q));
 
   document.getElementById('cli-count').textContent = clientes.length + ' clientes';
@@ -1220,13 +1415,13 @@ function renderizarClientes() {
   }
 
   tbody.innerHTML = clientes.map(c => `
-    <tr onclick="abrirDetalhe('${c.id}')">
+    <tr onclick="abrirDetalhe('${c.id}')" ${c.ativo !== 'sim' ? 'style="opacity:.55"' : ''}>
       <td><strong>${c.razao_social}</strong></td>
       <td><span class="mono">${c.cnpj}</span></td>
       <td>${c.estado}</td>
       <td>${c.municipio}</td>
       <td>${c.email||'—'}</td>
-      <td><span class="badge badge-ok">Ativo</span></td>
+      <td>${c.ativo === 'sim' ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge badge-gray">Inativo</span>'}</td>
       <td style="display:flex;gap:5px">
         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editarCliente('${c.id}')">Editar</button>
         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Detalhes</button>
@@ -1235,31 +1430,70 @@ function renderizarClientes() {
   `).join('');
 }
 
+function toggleMostrarInativos() {
+  state.mostrarInativos = !state.mostrarInativos;
+  document.getElementById('pill-inativos').classList.toggle('active', state.mostrarInativos);
+  document.getElementById('pill-inativos').textContent = state.mostrarInativos ? 'Ocultar inativos' : 'Mostrar inativos';
+  renderizarClientes();
+}
+
 // ── PENDENTES TABLE ──
+// Abre a view Pendentes já filtrada: null = pendências clássicas (sem CND
+// no mês ou vencida), 'vencendo' = CNDs enviadas mas perto do vencimento,
+// 'vencida' = CNDs já vencidas. Usada pelo item "Pendentes" do menu e pelos
+// dois cards novos do dashboard.
+function abrirPendentes(modo, navEl) {
+  state.filtroVenc = modo;
+  renderizarPendentes();
+  showView('pendentes', navEl || document.querySelectorAll('.nav-item')[2]);
+}
+
+// Quais tipos de CND de um cliente entram na lista, de acordo com o modo:
+// - null: pendência "clássica" (não enviada este mês, ou enviada mas vencida)
+// - 'vencendo': enviada e em dia, mas vence em breve (ainda não é "pendente" de verdade)
+// - 'vencida': já passou do vencimento
+function tiposPorModo(clienteId, mes, modo) {
+  return CONFIG.TIPOS_CND.filter(t => {
+    const cert = getCertidao(clienteId, t, mes);
+    if (modo === 'vencendo') return situacaoVencimento(cert) === 'vencendo';
+    if (modo === 'vencida') return situacaoVencimento(cert) === 'vencida';
+    return !certificadoEmDia(cert);
+  });
+}
+
 function renderizarPendentes() {
   const tbody = document.getElementById('pend-table');
-  const clientes = state.clientes.filter(c => c.ativo === 'sim' && temPendente(c.id, state.mesAtual));
-  const pendentes = [];
+  const modo = state.filtroVenc;
+  const clientes = state.clientes.filter(c => c.ativo === 'sim');
+  const linhas = [];
   clientes.forEach(c => {
-    const tipos = CONFIG.TIPOS_CND.filter(t => !certificadoEmDia(getCertidao(c.id, t, state.mesAtual)));
-    if (tipos.length) pendentes.push({cliente: c, tipos});
+    const tipos = tiposPorModo(c.id, state.mesAtual, modo);
+    if (tipos.length) linhas.push({cliente: c, tipos});
   });
 
-  document.getElementById('pend-count').textContent = pendentes.length + ' pendências';
+  const textos = {
+    vencendo: ['CNDs a vencer', 'a vencer', 'Nenhuma CND perto do vencimento neste mês'],
+    vencida: ['CNDs vencidas', 'vencidas', 'Nenhuma CND vencida neste mês']
+  };
+  const [titulo, unidade, vazioTxt] = textos[modo] || ['Certidões pendentes', 'pendências', 'Nenhuma certidão pendente este mês'];
+  document.getElementById('pend-title').textContent = titulo;
+  document.getElementById('pend-count').textContent = linhas.length + ' ' + unidade;
 
-  if (!pendentes.length) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>Tudo em dia!</p><span>Nenhuma certidão pendente este mês</span></div></td></tr>`;
+  if (!linhas.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>Tudo certo!</p><span>${vazioTxt}</span></div></td></tr>`;
     return;
   }
 
-  tbody.innerHTML = pendentes.map(({cliente:c, tipos}) => `
+  tbody.innerHTML = linhas.map(({cliente:c, tipos}) => `
     <tr onclick="abrirDetalhe('${c.id}')">
       <td><strong>${c.razao_social}</strong></td>
       <td><span class="mono">${c.cnpj}</span></td>
       <td><div style="display:flex;gap:4px;flex-wrap:wrap">${tipos.map(t => {
         const cert = getCertidao(c.id, t, state.mesAtual);
-        const vencida = situacaoVencimento(cert) === 'vencida';
-        return `<span class="badge ${vencida ? 'badge-err' : 'badge-warn'}">${t}${vencida ? ' (vencida)' : ''}</span>`;
+        const sit = situacaoVencimento(cert);
+        const cls = sit === 'vencida' ? 'badge-err' : 'badge-warn';
+        const sufixo = sit === 'vencida' ? ' (vencida)' : sit === 'vencendo' ? ` (vence ${formatarDataBR(cert.vencimento)})` : '';
+        return `<span class="badge ${cls}">${t}${sufixo}</span>`;
       }).join('')}</div></td>
       <td><span class="mono">${state.mesAtual}</span></td>
       <td><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Resolver</button></td>
@@ -1279,9 +1513,11 @@ function abrirDetalhe(id) {
 function renderizarDetalheCliente() {
   const c = state.clienteAtual;
   if (!c) return;
-  document.getElementById('det-nome').textContent = c.razao_social;
+  document.getElementById('det-nome').textContent = c.razao_social + (c.ativo !== 'sim' ? ' (inativo)' : '');
   document.getElementById('det-cnpj').textContent = c.cnpj + (c.estado ? ' · ' + c.estado : '') + (c.municipio ? ' · ' + c.municipio : '');
   document.getElementById('det-mes-nav').textContent = state.mesAtual;
+  const btnAtivo = document.getElementById('btn-toggle-ativo');
+  if (btnAtivo) btnAtivo.textContent = c.ativo === 'sim' ? 'Desativar' : 'Reativar';
 
   // Certidões do mês
   const grid = document.getElementById('det-cert-grid');
@@ -1306,6 +1542,7 @@ function renderizarDetalheCliente() {
           <button class="cert-btn upload-btn" onclick="abrirUpload('${tipo}','${state.mesAtual}')">
             ${cert ? 'Substituir PDF' : 'Upload PDF'}
           </button>
+          ${cert ? `<button class="cert-btn remove-btn" onclick="removerCertidao('${cert.id}')">Remover CND</button>` : ''}
         </div>
       </div>`;
   }).join('');
