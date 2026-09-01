@@ -338,13 +338,6 @@ tr:hover td{background:#fafbfc;cursor:pointer}
 
       <!-- ── DASHBOARD ── -->
       <div class="view active" id="view-dashboard">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Mês de referência</span>
-          <button class="btn btn-ghost btn-sm" onclick="mesDashAnterior()">‹</button>
-          <span id="dash-mes-nav" style="font-size:13px;font-family:var(--mono);min-width:70px;text-align:center;font-weight:600">—</span>
-          <button class="btn btn-ghost btn-sm" onclick="mesDashSeguinte()">›</button>
-          <button class="btn btn-ghost btn-sm" id="btn-mes-hoje" onclick="irParaMesAtualDashboard()" style="display:none">Voltar para hoje</button>
-        </div>
         <div class="stats" id="stats-cards">
           <div class="stat blue">
             <div class="stat-icon"><svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg></div>
@@ -474,7 +467,6 @@ tr:hover td{background:#fafbfc;cursor:pointer}
                 <th>Cliente</th>
                 <th>CNPJ</th>
                 <th>Certidões pendentes</th>
-                <th>Mês</th>
                 <th></th>
               </tr>
             </thead>
@@ -652,8 +644,7 @@ let state = {
   clientes: [],
   certidoes: [],
   clienteAtual: null,
-  mesAtual: mesHoje(),      // mês sendo visto/editado dentro do detalhe de UM cliente
-  mesDashboard: mesHoje(),  // mês exibido no Dashboard/Pendentes (independente do de cima, pra não bagunçar upload)
+  mesAtual: mesHoje(), // mês sendo visto/editado dentro do detalhe de UM cliente (upload, histórico)
   filtroStatus: 'todos',
   mostrarInativos: false, // toggle da lista de Clientes: inclui clientes desativados
   filtroVenc: null,       // null | 'vencida' | 'vencendo' — usado ao abrir a view Pendentes a partir dos cards do dashboard
@@ -1278,13 +1269,13 @@ function atualizarUI() {
 
 function atualizarStats() {
   const ativos = state.clientes.filter(c => c.ativo === 'sim');
-  const comTodasOk = ativos.filter(c => todasCertidonesOk(c.id, state.mesDashboard));
-  const comPendente = ativos.filter(c => temPendente(c.id, state.mesDashboard));
-  const semNenhuma = ativos.filter(c => semCertidoes(c.id, state.mesDashboard));
+  const comTodasOk = ativos.filter(c => todasCertidonesOk(c.id));
+  const comPendente = ativos.filter(c => temPendente(c.id));
+  const semNenhuma = ativos.filter(c => semCertidoes(c.id));
   // "a vencer" e "vencida" contam clientes distintos com pelo menos uma CND
-  // do mês exibido nessa situação (mesmo critério usado em "Pendentes").
-  const comVencendo = ativos.filter(c => CONFIG.TIPOS_CND.some(t => situacaoVencimento(getCertidao(c.id, t, state.mesDashboard)) === 'vencendo'));
-  const comVencida = ativos.filter(c => CONFIG.TIPOS_CND.some(t => situacaoVencimento(getCertidao(c.id, t, state.mesDashboard)) === 'vencida'));
+  // (a mais recente de cada tipo) nessa situação — mesmo critério usado em "Pendentes".
+  const comVencendo = ativos.filter(c => CONFIG.TIPOS_CND.some(t => situacaoVencimento(certidaoMaisRecente(c.id, t)) === 'vencendo'));
+  const comVencida = ativos.filter(c => CONFIG.TIPOS_CND.some(t => situacaoVencimento(certidaoMaisRecente(c.id, t)) === 'vencida'));
 
   document.getElementById('stat-total').textContent = ativos.length;
   document.getElementById('stat-ok').textContent = comTodasOk.length;
@@ -1293,10 +1284,6 @@ function atualizarStats() {
   document.getElementById('stat-vencendo').textContent = comVencendo.length;
   document.getElementById('stat-vencida').textContent = comVencida.length;
   document.getElementById('stat-vencendo-dias').textContent = CONFIG.DIAS_ALERTA_VENCIMENTO;
-
-  document.getElementById('dash-mes-nav').textContent = state.mesDashboard;
-  const btnHoje = document.getElementById('btn-mes-hoje');
-  if (btnHoje) btnHoje.style.display = state.mesDashboard === mesHoje() ? 'none' : 'inline-flex';
 
   const badge = document.getElementById('badge-pendentes');
   if (comPendente.length > 0) {
@@ -1309,6 +1296,17 @@ function atualizarStats() {
 
 function getCertidao(clienteId, tipo, mes) {
   return state.certidoes.find(c => c.cliente_id === clienteId && c.tipo === tipo && c.mes_ano === mes);
+}
+
+// A CND mais recente enviada pra esse cliente/tipo, seja qual for o mês de
+// referência dela. É isso que Dashboard/Pendentes usam pra decidir a
+// situação — assim o status de um cliente não "zera" sozinho quando o
+// calendário vira o mês, only porque ninguém fez um novo upload ainda; ele
+// continua valendo o que tiver de mais atual, até realmente vencer.
+function certidaoMaisRecente(clienteId, tipo) {
+  const candidatas = state.certidoes.filter(c => c.cliente_id === clienteId && c.tipo === tipo);
+  if (!candidatas.length) return undefined;
+  return candidatas.reduce((mais, atual) => (atual.mes_ano > mais.mes_ano ? atual : mais));
 }
 
 // Calcula a situação da CND a partir da data de vencimento informada no upload:
@@ -1342,37 +1340,51 @@ function certificadoEmDia(c) {
   return !!c && c.status === 'em_dia' && situacaoVencimento(c) !== 'vencida';
 }
 
-function todasCertidonesOk(clienteId, mes) {
-  return CONFIG.TIPOS_CND.every(t => certificadoEmDia(getCertidao(clienteId, t, mes)));
+// Estas quatro funções alimentam o Dashboard/Pendentes e olham sempre pra
+// CND mais recente de cada tipo, não pra um mês específico.
+function todasCertidonesOk(clienteId) {
+  return CONFIG.TIPOS_CND.every(t => certificadoEmDia(certidaoMaisRecente(clienteId, t)));
 }
 
-function temPendente(clienteId, mes) {
-  return CONFIG.TIPOS_CND.some(t => !certificadoEmDia(getCertidao(clienteId, t, mes)));
+function temPendente(clienteId) {
+  return CONFIG.TIPOS_CND.some(t => !certificadoEmDia(certidaoMaisRecente(clienteId, t)));
 }
 
-function semCertidoes(clienteId, mes) {
-  return CONFIG.TIPOS_CND.every(t => !getCertidao(clienteId, t, mes));
+function semCertidoes(clienteId) {
+  return CONFIG.TIPOS_CND.every(t => !certidaoMaisRecente(clienteId, t));
 }
 
-function statusCliente(clienteId, mes) {
-  if (todasCertidonesOk(clienteId, mes)) return 'ok';
-  if (semCertidoes(clienteId, mes)) return 'sem';
+function statusCliente(clienteId) {
+  if (todasCertidonesOk(clienteId)) return 'ok';
+  if (semCertidoes(clienteId)) return 'sem';
   return 'pendente';
 }
 
-function certDot(clienteId, tipo, mes) {
-  const c = getCertidao(clienteId, tipo, mes);
-  const venc = situacaoVencimento(c);
+// Monta o markup de um "dot" colorido a partir de uma certidão (ou undefined).
+function renderCertDot(cert, tipo) {
+  const venc = situacaoVencimento(cert);
   // Mesmo com o PDF enviado ("em_dia"), uma CND com vencimento já passado
   // precisa aparecer como vencida — o dot não pode dizer que está tudo bem.
-  let cls = c ? (c.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
+  let cls = cert ? (cert.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
   if (venc === 'vencida') cls = 'vencida';
   else if (venc === 'vencendo' && cls === 'ok') cls = 'vencendo';
-  let titulo = `${tipo}: ${c ? c.status : 'pendente'}`;
-  if (venc === 'vencida') titulo = `${tipo}: VENCIDA em ${formatarDataBR(c.vencimento)}`;
-  else if (venc === 'vencendo') titulo = `${tipo}: vence em ${formatarDataBR(c.vencimento)}`;
+  let titulo = `${tipo}: ${cert ? cert.status : 'pendente'}`;
+  if (venc === 'vencida') titulo = `${tipo}: VENCIDA em ${formatarDataBR(cert.vencimento)}`;
+  else if (venc === 'vencendo') titulo = `${tipo}: vence em ${formatarDataBR(cert.vencimento)}`;
+  else if (cert && cert.mes_ano) titulo += ` (ref. ${cert.mes_ano})`;
   const abrev = {Federal:'Fed',Estadual:'Est',Municipal:'Mun',Trabalhista:'Trab',FGTS:'FGTS'}[tipo];
   return `<div class="cert-dot ${cls}" title="${titulo}">${abrev}</div>`;
+}
+
+// Dot de um mês específico — usado no histórico do detalhe do cliente,
+// onde faz sentido olhar exatamente o que foi enviado naquele mês.
+function certDot(clienteId, tipo, mes) {
+  return renderCertDot(getCertidao(clienteId, tipo, mes), tipo);
+}
+
+// Dot "atual" — usado no Dashboard, sempre com a CND mais recente do tipo.
+function certDotAtual(clienteId, tipo) {
+  return renderCertDot(certidaoMaisRecente(clienteId, tipo), tipo);
 }
 
 // ── DASHBOARD TABLE ──
@@ -1384,7 +1396,7 @@ function renderizarDashboard() {
   if (q) clientes = clientes.filter(c => c.razao_social.toLowerCase().includes(q) || c.cnpj.includes(q));
   if (state.filtroStatus !== 'todos') {
     clientes = clientes.filter(c => {
-      const s = statusCliente(c.id, state.mesDashboard);
+      const s = statusCliente(c.id);
       return s === state.filtroStatus;
     });
   }
@@ -1397,7 +1409,7 @@ function renderizarDashboard() {
   }
 
   tbody.innerHTML = clientes.map(c => {
-    const s = statusCliente(c.id, state.mesDashboard);
+    const s = statusCliente(c.id);
     const badge = s === 'ok' ? '<span class="badge badge-ok">Em dia</span>' :
                   s === 'sem' ? '<span class="badge badge-gray">Sem CND</span>' :
                   '<span class="badge badge-warn">Pendente</span>';
@@ -1405,7 +1417,7 @@ function renderizarDashboard() {
       <td><strong>${c.razao_social}</strong></td>
       <td><span class="mono">${c.cnpj}</span></td>
       <td>${c.estado}</td>
-      ${CONFIG.TIPOS_CND.map(t => `<td>${certDot(c.id,t,state.mesDashboard)}</td>`).join('')}
+      ${CONFIG.TIPOS_CND.map(t => `<td>${certDotAtual(c.id,t)}</td>`).join('')}
       <td>${badge}</td>
       <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Ver</button></td>
     </tr>`;
@@ -1464,9 +1476,9 @@ function abrirPendentes(modo, navEl) {
 // - null: pendência "clássica" (não enviada este mês, ou enviada mas vencida)
 // - 'vencendo': enviada e em dia, mas vence em breve (ainda não é "pendente" de verdade)
 // - 'vencida': já passou do vencimento
-function tiposPorModo(clienteId, mes, modo) {
+function tiposPorModo(clienteId, modo) {
   return CONFIG.TIPOS_CND.filter(t => {
-    const cert = getCertidao(clienteId, t, mes);
+    const cert = certidaoMaisRecente(clienteId, t);
     if (modo === 'vencendo') return situacaoVencimento(cert) === 'vencendo';
     if (modo === 'vencida') return situacaoVencimento(cert) === 'vencida';
     return !certificadoEmDia(cert);
@@ -1479,20 +1491,20 @@ function renderizarPendentes() {
   const clientes = state.clientes.filter(c => c.ativo === 'sim');
   const linhas = [];
   clientes.forEach(c => {
-    const tipos = tiposPorModo(c.id, state.mesDashboard, modo);
+    const tipos = tiposPorModo(c.id, modo);
     if (tipos.length) linhas.push({cliente: c, tipos});
   });
 
   const textos = {
-    vencendo: ['CNDs a vencer', 'a vencer', 'Nenhuma CND perto do vencimento neste mês'],
-    vencida: ['CNDs vencidas', 'vencidas', 'Nenhuma CND vencida neste mês']
+    vencendo: ['CNDs a vencer', 'a vencer', 'Nenhuma CND perto do vencimento no momento'],
+    vencida: ['CNDs vencidas', 'vencidas', 'Nenhuma CND vencida no momento']
   };
-  const [titulo, unidade, vazioTxt] = textos[modo] || ['Certidões pendentes', 'pendências', 'Nenhuma certidão pendente este mês'];
+  const [titulo, unidade, vazioTxt] = textos[modo] || ['Certidões pendentes', 'pendências', 'Nenhuma certidão pendente no momento'];
   document.getElementById('pend-title').textContent = titulo;
   document.getElementById('pend-count').textContent = linhas.length + ' ' + unidade;
 
   if (!linhas.length) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>Tudo certo!</p><span>${vazioTxt}</span></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4"><div class="empty"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>Tudo certo!</p><span>${vazioTxt}</span></div></td></tr>`;
     return;
   }
 
@@ -1501,13 +1513,14 @@ function renderizarPendentes() {
       <td><strong>${c.razao_social}</strong></td>
       <td><span class="mono">${c.cnpj}</span></td>
       <td><div style="display:flex;gap:4px;flex-wrap:wrap">${tipos.map(t => {
-        const cert = getCertidao(c.id, t, state.mesDashboard);
+        const cert = certidaoMaisRecente(c.id, t);
         const sit = situacaoVencimento(cert);
         const cls = sit === 'vencida' ? 'badge-err' : 'badge-warn';
-        const sufixo = sit === 'vencida' ? ' (vencida)' : sit === 'vencendo' ? ` (vence ${formatarDataBR(cert.vencimento)})` : '';
+        const sufixo = sit === 'vencida' ? ` (vencida em ${formatarDataBR(cert.vencimento)})`
+                     : sit === 'vencendo' ? ` (vence ${formatarDataBR(cert.vencimento)})`
+                     : !cert ? ' (nunca enviada)' : '';
         return `<span class="badge ${cls}">${t}${sufixo}</span>`;
       }).join('')}</div></td>
-      <td><span class="mono">${state.mesDashboard}</span></td>
       <td><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Resolver</button></td>
     </tr>
   `).join('');
@@ -1591,29 +1604,6 @@ function mesSeguinte() {
   const d = new Date(y, m, 1);
   state.mesAtual = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   renderizarDetalheCliente();
-}
-
-// Navegação de mês do Dashboard/Pendentes — separada de state.mesAtual (que
-// é do detalhe de um cliente específico) pra nunca arriscar um upload novo
-// ser gravado no mês errado só porque alguém deixou o Dashboard "parado"
-// num mês antigo.
-function mesDashAnterior() {
-  const [y,m] = state.mesDashboard.split('-').map(Number);
-  const d = new Date(y, m-2, 1);
-  state.mesDashboard = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  atualizarUI();
-}
-
-function mesDashSeguinte() {
-  const [y,m] = state.mesDashboard.split('-').map(Number);
-  const d = new Date(y, m, 1);
-  state.mesDashboard = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  atualizarUI();
-}
-
-function irParaMesAtualDashboard() {
-  state.mesDashboard = mesHoje();
-  atualizarUI();
 }
 
 // ══════════════════════════════════════════
