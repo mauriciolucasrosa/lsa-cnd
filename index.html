@@ -504,14 +504,9 @@ tr:hover td{background:#fafbfc;cursor:pointer}
             </div>
           </div>
 
-          <!-- MÊS ATUAL -->
+          <!-- CERTIDÕES ATUAIS -->
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <div style="font-size:13px;font-weight:600">Certidões — <span id="det-mes-atual"></span></div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <button class="btn btn-ghost btn-sm" onclick="mesAnterior()">‹</button>
-              <span id="det-mes-nav" style="font-size:13px;font-family:var(--mono);min-width:70px;text-align:center"></span>
-              <button class="btn btn-ghost btn-sm" onclick="mesSeguinte()">›</button>
-            </div>
+            <div style="font-size:13px;font-weight:600">Certidões</div>
           </div>
 
           <div class="cert-grid" id="det-cert-grid"></div>
@@ -644,7 +639,6 @@ let state = {
   clientes: [],
   certidoes: [],
   clienteAtual: null,
-  mesAtual: mesHoje(), // mês sendo visto/editado dentro do detalhe de UM cliente (upload, histórico)
   filtroStatus: 'todos',
   mostrarInativos: false, // toggle da lista de Clientes: inclui clientes desativados
   filtroVenc: null,       // null | 'vencida' | 'vencendo' — usado ao abrir a view Pendentes a partir dos cards do dashboard
@@ -1530,7 +1524,6 @@ function renderizarPendentes() {
 function abrirDetalhe(id) {
   state.clienteAtual = state.clientes.find(c => c.id === id);
   if (!state.clienteAtual) return;
-  state.mesAtual = mesHoje();
   showView('detalhe', null);
   renderizarDetalheCliente();
 }
@@ -1540,14 +1533,15 @@ function renderizarDetalheCliente() {
   if (!c) return;
   document.getElementById('det-nome').textContent = c.razao_social + (c.ativo !== 'sim' ? ' (inativo)' : '');
   document.getElementById('det-cnpj').textContent = c.cnpj + (c.estado ? ' · ' + c.estado : '') + (c.municipio ? ' · ' + c.municipio : '');
-  document.getElementById('det-mes-nav').textContent = state.mesAtual;
   const btnAtivo = document.getElementById('btn-toggle-ativo');
   if (btnAtivo) btnAtivo.textContent = c.ativo === 'sim' ? 'Desativar' : 'Reativar';
 
-  // Certidões do mês
+  // Certidões atuais: sempre a mais recente enviada de cada tipo, já que o
+  // upload "Substituir PDF" sobrescreve o registro anterior — não faz
+  // sentido navegar por mês, o que importa é o que está valendo hoje.
   const grid = document.getElementById('det-cert-grid');
   grid.innerHTML = CONFIG.TIPOS_CND.map(tipo => {
-    const cert = getCertidao(c.id, tipo, state.mesAtual);
+    const cert = certidaoMaisRecente(c.id, tipo);
     const venc = situacaoVencimento(cert);
     let cls = cert ? (cert.status === 'em_dia' ? 'ok' : 'pendente') : 'vazio';
     let statusTxt = cert ? (cert.status === 'em_dia' ? 'Em dia' : 'Pendente') : 'Não emitida';
@@ -1564,7 +1558,7 @@ function renderizarDetalheCliente() {
         <div class="cert-date">${dataTxt}</div>
         <div class="cert-actions">
           ${cert && cert.link_drive ? `<a href="${cert.link_drive}" target="_blank" class="cert-btn">Ver PDF</a>` : ''}
-          <button class="cert-btn upload-btn" onclick="abrirUpload('${tipo}','${state.mesAtual}')">
+          <button class="cert-btn upload-btn" onclick="abrirUpload('${tipo}')">
             ${cert ? 'Substituir PDF' : 'Upload PDF'}
           </button>
           ${cert ? `<button class="cert-btn remove-btn" onclick="removerCertidao('${cert.id}')">Remover CND</button>` : ''}
@@ -1572,7 +1566,8 @@ function renderizarDetalheCliente() {
       </div>`;
   }).join('');
 
-  // Histórico
+  // Histórico: mantido como registro auditável de todos os envios por mês,
+  // apenas para consulta — não interfere mais nos cards acima.
   const meses = [...new Set(state.certidoes.filter(c2 => c2.cliente_id === c.id).map(c2 => c2.mes_ano))].sort().reverse();
   const hist = document.getElementById('det-historico');
   if (!meses.length) {
@@ -1585,25 +1580,8 @@ function renderizarDetalheCliente() {
       <div class="hist-certs">
         ${CONFIG.TIPOS_CND.map(tipo => certDot(c.id, tipo, mes)).join('')}
       </div>
-      <div class="hist-action">
-        <button class="btn btn-ghost btn-sm" onclick="state.mesAtual='${mes}';renderizarDetalheCliente()">Ver mês</button>
-      </div>
     </div>
   `).join('');
-}
-
-function mesAnterior() {
-  const [y,m] = state.mesAtual.split('-').map(Number);
-  const d = new Date(y, m-2, 1);
-  state.mesAtual = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  renderizarDetalheCliente();
-}
-
-function mesSeguinte() {
-  const [y,m] = state.mesAtual.split('-').map(Number);
-  const d = new Date(y, m, 1);
-  state.mesAtual = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  renderizarDetalheCliente();
 }
 
 // ══════════════════════════════════════════
@@ -1637,18 +1615,22 @@ function editarClienteAtual() {
   if (state.clienteAtual) editarCliente(state.clienteAtual.id);
 }
 
-function abrirUpload(tipo, mes) {
+function abrirUpload(tipo) {
+  // O upload é sempre arquivado no mês corrente (isso continua controlando
+  // a pasta no Drive e o histórico), mesmo sem expor um seletor de mês na
+  // tela — o usuário só precisa saber que está enviando a CND mais atual.
+  const mes = mesHoje();
   document.getElementById('upload-tipo').value = tipo;
   document.getElementById('upload-mes').value = mes;
   document.getElementById('upload-title').textContent = `Upload — CND ${tipo}`;
-  document.getElementById('upload-sub').textContent = `${state.clienteAtual?.razao_social} · ${mes}`;
+  document.getElementById('upload-sub').textContent = `${state.clienteAtual?.razao_social}`;
   document.getElementById('arquivo-info').style.display = 'none';
   document.getElementById('btn-upload').disabled = true;
   arquivoAtual = null;
   document.getElementById('file-input').value = '';
-  // Se já existe uma CND enviada para esse tipo/mês, pré-preenche com o
-  // vencimento salvo (útil ao reenviar/corrigir um upload).
-  const certExistente = getCertidao(state.clienteAtual?.id, tipo, mes);
+  // Pré-preenche com o vencimento da CND mais recente já cadastrada para
+  // esse tipo (útil ao reenviar/corrigir um upload).
+  const certExistente = certidaoMaisRecente(state.clienteAtual?.id, tipo);
   document.getElementById('upload-vencimento').value = certExistente?.vencimento || '';
   document.getElementById('modal-upload').classList.add('open');
 }
@@ -1687,7 +1669,6 @@ function showView(id, navEl) {
   const info = pageInfo[id] || ['',''];
   document.getElementById('page-title').textContent = info[0];
   document.getElementById('page-sub').textContent = info[1];
-  if (id !== 'detalhe') state.mesAtual = mesHoje();
 }
 
 function voltarParaClientes() {
