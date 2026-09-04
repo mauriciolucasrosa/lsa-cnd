@@ -1328,10 +1328,35 @@ function getCertidao(clienteId, tipo, mes) {
 // situação — assim o status de um cliente não "zera" sozinho quando o
 // calendário vira o mês, only porque ninguém fez um novo upload ainda; ele
 // continua valendo o que tiver de mais atual, até realmente vencer.
+// Converte a data_upload (formato "DD/MM/AAAA", de toLocaleDateString('pt-BR'))
+// pra um formato "AAAA-MM-DD" comparável como texto — usado só como critério
+// de desempate abaixo.
+function dataUploadParaOrdenacao(dataBR) {
+  if (!dataBR) return '';
+  const [d, m, a] = dataBR.split('/');
+  if (!d || !m || !a) return '';
+  return `${a}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+}
+
+// Normalmente basta comparar mes_ano (string AAAA-MM, comparação
+// lexicográfica = cronológica) pra achar a CND mais atual de um tipo. Mas se
+// um cliente acabou com DUAS linhas pro mesmo mês/tipo na aba CERTIDOES —
+// o que podia acontecer numa versão antiga do app, em que "Substituir PDF"
+// sempre criava uma linha nova em vez de atualizar a existente (corrigido,
+// mas linhas duplicadas de testes antigos podem ter ficado na planilha) —
+// mes_ano empata entre as duas, e usar a ordem delas na planilha pra
+// desempatar é arriscado: pode devolver a linha antiga e "sumir" com uma
+// substituição que já foi feita (PDF já está no Drive, mas o Dashboard volta
+// a mostrar a CND anterior). Por isso o desempate usa a data_upload real —
+// o carimbo de quando aquela linha específica foi de fato gravada — que é
+// sempre atualizado a cada envio, não importa se foi update ou append.
 function certidaoMaisRecente(clienteId, tipo) {
   const candidatas = state.certidoes.filter(c => c.cliente_id === clienteId && c.tipo === tipo);
   if (!candidatas.length) return undefined;
-  return candidatas.reduce((mais, atual) => (atual.mes_ano > mais.mes_ano ? atual : mais));
+  return candidatas.reduce((mais, atual) => {
+    if (atual.mes_ano !== mais.mes_ano) return atual.mes_ano > mais.mes_ano ? atual : mais;
+    return dataUploadParaOrdenacao(atual.data_upload) >= dataUploadParaOrdenacao(mais.data_upload) ? atual : mais;
+  });
 }
 
 // Calcula a situação da CND a partir da data de vencimento informada no upload:
