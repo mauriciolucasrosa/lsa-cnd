@@ -512,6 +512,15 @@ tr:hover td{background:#fafbfc;cursor:pointer}
           <div class="cert-grid" id="det-cert-grid"></div>
         </div>
 
+        <!-- OUTROS VENCIMENTOS -->
+        <div class="panel">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:13px;font-weight:600">Outros vencimentos</div>
+            <button class="btn btn-ghost btn-sm" onclick="editarClienteAtual()">Editar datas</button>
+          </div>
+          <div class="cert-grid" id="det-outros-venc" style="grid-template-columns:repeat(2,1fr)"></div>
+        </div>
+
         <!-- HISTÓRICO -->
         <div class="panel">
           <div style="font-size:13px;font-weight:600;margin-bottom:14px">Histórico completo</div>
@@ -571,6 +580,14 @@ tr:hover td{background:#fafbfc;cursor:pointer}
       <div class="form-group">
         <label class="form-label">Inscrição municipal</label>
         <input class="form-input" id="form-im" placeholder="00000000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Vencimento do certificado digital</label>
+        <input type="date" class="form-input" id="form-cert-digital-venc">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Vencimento do alvará de funcionamento</label>
+        <input type="date" class="form-input" id="form-alvara-venc">
       </div>
     </div>
     <div class="modal-footer">
@@ -837,13 +854,15 @@ async function carregarDados() {
     // Clientes
     const rCli = await window.gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: CONFIG.SHEETS_ID,
-      range: 'CLIENTES!A2:K'
+      range: 'CLIENTES!A2:M'
     });
     const rowsCli = rCli.result.values || [];
     state.clientes = rowsCli.map(r => ({
       id: r[0]||'', cnpj: r[1]||'', razao_social: r[2]||'', estado: r[3]||'',
       municipio: r[4]||'', inscricao_estadual: r[5]||'', inscricao_municipal: r[6]||'',
-      email: r[7]||'', telefone: r[8]||'', ativo: r[9]||'sim', data_cadastro: r[10]||''
+      email: r[7]||'', telefone: r[8]||'', ativo: r[9]||'sim', data_cadastro: r[10]||'',
+      certificado_digital_venc: r[11]||'', // AAAA-MM-DD; colunas L/M novas, linhas antigas ficam com ''
+      alvara_venc: r[12]||''
     })).filter(c => c.cnpj);
 
     // Certidões
@@ -895,6 +914,8 @@ async function salvarCliente() {
 
   mostrarLoading('Salvando cliente...');
 
+  const clienteExistente = id_edit ? state.clientes.find(c=>c.id===id_edit) : null;
+
   const cliente = {
     id: id_edit || 'CLI' + Date.now(),
     cnpj, razao_social: razao,
@@ -904,13 +925,18 @@ async function salvarCliente() {
     inscricao_municipal: document.getElementById('form-im').value.trim(),
     email: document.getElementById('form-email').value.trim(),
     telefone: document.getElementById('form-tel').value.trim(),
-    ativo: 'sim',
-    data_cadastro: id_edit ? (state.clientes.find(c=>c.id===id_edit)?.data_cadastro||new Date().toLocaleDateString('pt-BR')) : new Date().toLocaleDateString('pt-BR')
+    // Ao editar, preserva o status ativo/inativo já salvo — antes esse campo
+    // era sempre fixado como 'sim', então corrigir dados de um cliente
+    // desativado o reativava sem querer. Só cliente novo nasce 'sim'.
+    ativo: clienteExistente ? clienteExistente.ativo : 'sim',
+    data_cadastro: clienteExistente ? (clienteExistente.data_cadastro || new Date().toLocaleDateString('pt-BR')) : new Date().toLocaleDateString('pt-BR'),
+    certificado_digital_venc: document.getElementById('form-cert-digital-venc').value, // AAAA-MM-DD ou ''
+    alvara_venc: document.getElementById('form-alvara-venc').value // AAAA-MM-DD ou ''
   };
 
   const row = [cliente.id, cliente.cnpj, cliente.razao_social, cliente.estado, cliente.municipio,
     cliente.inscricao_estadual, cliente.inscricao_municipal, cliente.email, cliente.telefone,
-    cliente.ativo, cliente.data_cadastro];
+    cliente.ativo, cliente.data_cadastro, cliente.certificado_digital_venc, cliente.alvara_venc];
 
   try {
     if (state.googleToken) {
@@ -920,7 +946,7 @@ async function salvarCliente() {
         if (idx >= 0) {
           await window.gapi.client.sheets.spreadsheets.values.update({
             spreadsheetId: CONFIG.SHEETS_ID,
-            range: `CLIENTES!A${idx+2}:K${idx+2}`,
+            range: `CLIENTES!A${idx+2}:M${idx+2}`,
             valueInputOption: 'RAW',
             resource: {values: [row]}
           });
@@ -929,7 +955,7 @@ async function salvarCliente() {
       } else {
         await window.gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: CONFIG.SHEETS_ID,
-          range: 'CLIENTES!A:K',
+          range: 'CLIENTES!A:M',
           valueInputOption: 'RAW',
           insertDataOption: 'INSERT_ROWS',
           resource: {values: [row]}
@@ -982,12 +1008,12 @@ async function alternarAtivoCliente(id) {
   const atualizado = {...cliente, ativo: novoAtivo};
   const row = [atualizado.id, atualizado.cnpj, atualizado.razao_social, atualizado.estado, atualizado.municipio,
     atualizado.inscricao_estadual, atualizado.inscricao_municipal, atualizado.email, atualizado.telefone,
-    atualizado.ativo, atualizado.data_cadastro];
+    atualizado.ativo, atualizado.data_cadastro, atualizado.certificado_digital_venc||'', atualizado.alvara_venc||''];
   try {
     if (state.googleToken) {
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId: CONFIG.SHEETS_ID,
-        range: `CLIENTES!A${idx+2}:K${idx+2}`,
+        range: `CLIENTES!A${idx+2}:M${idx+2}`,
         valueInputOption: 'RAW',
         resource: {values: [row]}
       });
@@ -1031,7 +1057,7 @@ async function removerCliente(id) {
     if (state.googleToken) {
       await window.gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId: CONFIG.SHEETS_ID,
-        range: `CLIENTES!A${idx+2}:K${idx+2}`
+        range: `CLIENTES!A${idx+2}:M${idx+2}`
       });
       await carregarDados(); // recarrega do Sheets pra realinhar os índices das linhas
     } else {
@@ -1125,9 +1151,12 @@ async function fazerUpload() {
       vencimento // AAAA-MM-DD, usado para calcular se a CND está vencida/vencendo
     };
 
-    state.certidoes = state.certidoes.filter(c => !(c.cliente_id===cliente.id && c.tipo===tipo && c.mes_ano===mes));
-    state.certidoes.push(cert);
-
+    // Importante: só mexemos em state.certidoes DEPOIS que a gravação no
+    // Sheets deu certo. Antes, essa mutação acontecia antes do await abaixo —
+    // se a gravação remota falhasse (ex.: permissão, rede), o dado "otimista"
+    // ficava só na memória, sem nunca passar por atualizarUI(); na prática,
+    // o Dashboard congelava com números desatualizados até a próxima ação
+    // bem-sucedida (que aí sim rodava atualizarUI() e revelava a inconsistência).
     if (state.googleToken) {
       const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao, cert.vencimento];
       const linhaExistente = certAnterior ? await buscarLinhaPorId('CERTIDOES', certAnterior.id) : null;
@@ -1147,9 +1176,11 @@ async function fazerUpload() {
           resource: {values: [row]}
         });
       }
-    } else {
-      salvarLocal();
     }
+
+    state.certidoes = state.certidoes.filter(c => !(c.cliente_id===cliente.id && c.tipo===tipo && c.mes_ano===mes));
+    state.certidoes.push(cert);
+    if (!state.googleToken) salvarLocal();
 
     atualizarUI();
     renderizarDetalheCliente();
@@ -1354,6 +1385,27 @@ function statusCliente(clienteId) {
   return 'pendente';
 }
 
+// Card informativo pra um vencimento "solto" (sem PDF/upload), como
+// Certificado Digital e Alvará de Funcionamento: só mostra a data e a
+// situação (ok/vence em breve/vencido), sem os botões de upload/remoção
+// que os cards de CND têm.
+function renderVencimentoCard(nome, dataIso) {
+  const sit = situacaoVencimento({vencimento: dataIso});
+  let cls = 'vazio', statusTxt = 'Não informado';
+  if (dataIso) {
+    cls = 'ok'; statusTxt = 'Em dia';
+    if (sit === 'vencida') { cls = 'vencida'; statusTxt = 'Vencido'; }
+    else if (sit === 'vencendo') { cls = 'vencendo'; statusTxt = 'Vence em breve'; }
+  }
+  const dataTxt = dataIso ? `Vence ${formatarDataBR(dataIso)}` : '—';
+  return `
+    <div class="cert-card ${cls}">
+      <div class="cert-name">${nome}</div>
+      <div class="cert-status">${statusTxt}</div>
+      <div class="cert-date">${dataTxt}</div>
+    </div>`;
+}
+
 // Monta o markup de um "dot" colorido a partir de uma certidão (ou undefined).
 function renderCertDot(cert, tipo) {
   const venc = situacaoVencimento(cert);
@@ -1382,10 +1434,20 @@ function certDotAtual(clienteId, tipo) {
 }
 
 // ── DASHBOARD TABLE ──
+// Ordena por razão social (ordem alfabética, ignorando maiúsc./acentos) —
+// usado em toda listagem de clientes. Sempre recebe/retorna uma cópia do
+// array (via .filter/.slice antes de chamar), nunca ordena state.clientes
+// diretamente: salvarCliente/alternarAtivoCliente/removerCliente calculam a
+// linha da planilha a partir do ÍNDICE desse array, então ele precisa
+// continuar na mesma ordem em que veio do Sheets — só a exibição é ordenada.
+function ordenarPorNome(a, b) {
+  return a.razao_social.localeCompare(b.razao_social, 'pt-BR', {sensitivity: 'base'});
+}
+
 function renderizarDashboard() {
   const tbody = document.getElementById('dash-table');
   const q = document.getElementById('dash-search')?.value.toLowerCase() || '';
-  let clientes = state.clientes.filter(c => c.ativo === 'sim');
+  let clientes = state.clientes.filter(c => c.ativo === 'sim').sort(ordenarPorNome);
 
   if (q) clientes = clientes.filter(c => c.razao_social.toLowerCase().includes(q) || c.cnpj.includes(q));
   if (state.filtroStatus !== 'todos') {
@@ -1422,7 +1484,7 @@ function renderizarDashboard() {
 function renderizarClientes() {
   const tbody = document.getElementById('cli-table');
   const q = document.getElementById('cli-search')?.value.toLowerCase() || '';
-  let clientes = state.mostrarInativos ? state.clientes.slice() : state.clientes.filter(c => c.ativo === 'sim');
+  let clientes = (state.mostrarInativos ? state.clientes.slice() : state.clientes.filter(c => c.ativo === 'sim')).sort(ordenarPorNome);
   if (q) clientes = clientes.filter(c => c.razao_social.toLowerCase().includes(q) || c.cnpj.includes(q));
 
   document.getElementById('cli-count').textContent = clientes.length + ' clientes';
@@ -1482,7 +1544,7 @@ function tiposPorModo(clienteId, modo) {
 function renderizarPendentes() {
   const tbody = document.getElementById('pend-table');
   const modo = state.filtroVenc;
-  const clientes = state.clientes.filter(c => c.ativo === 'sim');
+  const clientes = state.clientes.filter(c => c.ativo === 'sim').sort(ordenarPorNome);
   const linhas = [];
   clientes.forEach(c => {
     const tipos = tiposPorModo(c.id, modo);
@@ -1566,6 +1628,15 @@ function renderizarDetalheCliente() {
       </div>`;
   }).join('');
 
+  // Outros vencimentos: Certificado Digital e Alvará de Funcionamento não
+  // têm PDF nem histórico por mês, só uma data de vencimento cadastrada na
+  // ficha do cliente (mesmo modal de Editar cliente). Reaproveita
+  // situacaoVencimento() passando um objeto {vencimento} "fake", já que a
+  // função só olha essa propriedade — não precisa de uma variante nova.
+  document.getElementById('det-outros-venc').innerHTML =
+    renderVencimentoCard('Certificado Digital', c.certificado_digital_venc) +
+    renderVencimentoCard('Alvará de Funcionamento', c.alvara_venc);
+
   // Histórico: mantido como registro auditável de todos os envios por mês,
   // apenas para consulta — não interfere mais nos cards acima.
   const meses = [...new Set(state.certidoes.filter(c2 => c2.cliente_id === c.id).map(c2 => c2.mes_ano))].sort().reverse();
@@ -1590,7 +1661,7 @@ function renderizarDetalheCliente() {
 function abrirModalCliente() {
   document.getElementById('modal-cli-title').textContent = 'Novo cliente';
   document.getElementById('form-cli-id').value = '';
-  ['form-razao','form-cnpj','form-email','form-tel','form-municipio','form-ie','form-im'].forEach(id => document.getElementById(id).value = '');
+  ['form-razao','form-cnpj','form-email','form-tel','form-municipio','form-ie','form-im','form-cert-digital-venc','form-alvara-venc'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('form-estado').value = 'SP';
   document.getElementById('modal-cliente').classList.add('open');
 }
@@ -1608,6 +1679,8 @@ function editarCliente(id) {
   document.getElementById('form-municipio').value = c.municipio;
   document.getElementById('form-ie').value = c.inscricao_estadual;
   document.getElementById('form-im').value = c.inscricao_municipal;
+  document.getElementById('form-cert-digital-venc').value = c.certificado_digital_venc || '';
+  document.getElementById('form-alvara-venc').value = c.alvara_venc || '';
   document.getElementById('modal-cliente').classList.add('open');
 }
 
