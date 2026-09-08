@@ -953,11 +953,11 @@ async function salvarCliente() {
           state.clientes[idx] = cliente;
         }
       } else {
-        await window.gapi.client.sheets.spreadsheets.values.append({
+        const linha = await proximaLinhaVazia('CLIENTES');
+        await window.gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId: CONFIG.SHEETS_ID,
-          range: 'CLIENTES!A:M',
+          range: `CLIENTES!A${linha}:M${linha}`,
           valueInputOption: 'RAW',
-          insertDataOption: 'INSERT_ROWS',
           resource: {values: [row]}
         });
         state.clientes.push(cliente);
@@ -1168,11 +1168,11 @@ async function fazerUpload() {
         });
       }
       const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao, cert.vencimento];
-      await window.gapi.client.sheets.spreadsheets.values.append({
+      const linha = await proximaLinhaVazia('CERTIDOES');
+      await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId: CONFIG.SHEETS_ID,
-        range: 'CERTIDOES!A:I',
+        range: `CERTIDOES!A${linha}:I${linha}`,
         valueInputOption: 'RAW',
-        insertDataOption: 'INSERT_ROWS',
         resource: {values: [row]}
       });
     }
@@ -1229,6 +1229,27 @@ async function buscarOuCriarPasta(nome, parentId) {
   });
   if (!nova.id) throw new Error(`Não foi possível criar/localizar a pasta "${nome}" no Drive.`);
   return nova.id;
+}
+
+// Acha a próxima linha realmente vazia de uma aba, olhando o conteúdo de
+// verdade numa faixa BEM larga de colunas (A até AZ) em vez de confiar no
+// "auto-detectar onde a tabela termina" do método values.append do Google.
+// Esse auto-detectar é conhecidamente instável (célula mesclada, filtro
+// aplicado, edição manual no meio da planilha etc. confundem os limites que
+// o Google enxerga) e foi isso que causou linhas inteiras de CERTIDOES
+// serem gravadas cada vez mais deslocadas pra direita ao longo do tempo —
+// em vez de deixar o Google decidir, calculamos nós mesmos a linha exata e
+// gravamos ali com um update direto (values.update), nunca mais um append.
+// Ler até a coluna AZ (bem além do que qualquer aba deste app usa) garante
+// que não vamos "sub-contar" a última linha usada, mesmo que dados antigos
+// tenham ficado deslocados bem mais pra direita do que deveriam.
+async function proximaLinhaVazia(aba) {
+  const resp = await window.gapi.client.sheets.spreadsheets.values.get({
+    spreadsheetId: CONFIG.SHEETS_ID,
+    range: `${aba}!A:AZ`
+  });
+  const linhas = resp.result.values || [];
+  return linhas.length + 1;
 }
 
 // Busca o número da linha (1-based, contando o cabeçalho) onde a coluna A
