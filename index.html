@@ -906,12 +906,19 @@ function salvarLocal() {
 // ══════════════════════════════════════════
 // CRUD CLIENTES
 // ══════════════════════════════════════════
+// Mesma trava de reentrância do fazerUpload(): evita que um clique duplo em
+// "Salvar cliente" dispare duas gravações concorrentes, que poderiam
+// calcular a mesma "próxima linha vazia" e se atropelar.
+let salvandoCliente = false;
+
 async function salvarCliente() {
+  if (salvandoCliente) return;
   const id_edit = document.getElementById('form-cli-id').value;
   const cnpj = document.getElementById('form-cnpj').value.trim();
   const razao = document.getElementById('form-razao').value.trim();
   if (!cnpj || !razao) { mostrarToast('CNPJ e Razão Social são obrigatórios'); return; }
 
+  salvandoCliente = true;
   mostrarLoading('Salvando cliente...');
 
   const clienteExistente = id_edit ? state.clientes.find(c=>c.id===id_edit) : null;
@@ -953,10 +960,12 @@ async function salvarCliente() {
           state.clientes[idx] = cliente;
         }
       } else {
-        const linha = await proximaLinhaVazia('CLIENTES');
+        const linha = await linhaVaziaSegura('CLIENTES', 'M');
+        const rangeGravacao = `CLIENTES!A${linha}:M${linha}`;
+        console.log('[CLIENTES] Gravando novo cliente', {linha, range: rangeGravacao, row});
         await window.gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId: CONFIG.SHEETS_ID,
-          range: `CLIENTES!A${linha}:M${linha}`,
+          range: rangeGravacao,
           valueInputOption: 'RAW',
           resource: {values: [row]}
         });
@@ -973,9 +982,16 @@ async function salvarCliente() {
   } catch(e) {
     console.error('[Sheets] Erro ao salvar cliente:', e);
     const code = (e && e.status) || (e && e.result && e.result.error && e.result.error.code);
-    if (code === 401) { mostrarToast('Sessão do Google expirou, reconecte e tente salvar de novo.'); esconderLoading(); iniciarGoogleAuth(); return; }
+    if (code === 401) {
+      mostrarToast('Sessão do Google expirou, reconecte e tente salvar de novo.');
+      salvandoCliente = false;
+      esconderLoading();
+      iniciarGoogleAuth();
+      return;
+    }
     mostrarToast('Erro ao salvar: ' + extrairErroGoogle(e));
   }
+  salvandoCliente = false;
   esconderLoading();
 }
 
@@ -1081,6 +1097,14 @@ async function removerCliente(id) {
 // ══════════════════════════════════════════
 let arquivoAtual = null;
 
+// Trava simples pra impedir que fazerUpload() rode duas vezes ao mesmo tempo
+// (clique duplo, duplo toque no celular, ou clique + Enter). Sem isso, duas
+// chamadas concorrentes podiam calcular a MESMA "próxima linha vazia" (cada
+// uma lê a planilha antes da outra terminar de escrever) e gravar por cima
+// uma da outra — um dos jeitos mais prováveis de gerar linha duplicada/
+// deslocada no CERTIDOES sem que o código do range em si esteja errado.
+let uploadEmAndamento = false;
+
 function arquivoSelecionado(input) {
   const file = input.files[0];
   if (!file) return;
@@ -1093,7 +1117,9 @@ function arquivoSelecionado(input) {
 }
 
 async function fazerUpload() {
-  if (!arquivoAtual) return;
+  if (!arquivoAtual || uploadEmAndamento) return;
+  uploadEmAndamento = true;
+  document.getElementById('btn-upload').disabled = true;
   const tipo = document.getElementById('upload-tipo').value;
   const mes = document.getElementById('upload-mes').value;
   const vencimento = document.getElementById('upload-vencimento').value; // AAAA-MM-DD ou ''
@@ -1168,10 +1194,17 @@ async function fazerUpload() {
         });
       }
       const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao, cert.vencimento];
-      const linha = await proximaLinhaVazia('CERTIDOES');
+      const linha = await linhaVaziaSegura('CERTIDOES', 'I');
+      const rangeGravacao = `CERTIDOES!A${linha}:I${linha}`;
+      // Log de diagnóstico: se algum dia essa linha aparecer deslocada de
+      // novo na planilha (ex.: dados começando na coluna I em vez da A),
+      // dá pra abrir o Console do navegador (F12) e conferir aqui exatamente
+      // qual range foi pedido pro Google — separa "o app pediu o range certo
+      // e o Google gravou errado" de "o app calculou/pediu o range errado".
+      console.log('[CERTIDOES] Gravando CND', {linha, range: rangeGravacao, row});
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId: CONFIG.SHEETS_ID,
-        range: `CERTIDOES!A${linha}:I${linha}`,
+        range: rangeGravacao,
         valueInputOption: 'RAW',
         resource: {values: [row]}
       });
@@ -1187,11 +1220,18 @@ async function fazerUpload() {
   } catch(e) {
     console.error('[Drive/Sheets] Erro no upload:', e);
     const code = (e && e.status) || (e && e.result && e.result.error && e.result.error.code);
-    if (code === 401) { mostrarToast('Sessão do Google expirou, reconecte e tente enviar de novo.'); esconderLoading(); iniciarGoogleAuth(); return; }
+    if (code === 401) {
+      mostrarToast('Sessão do Google expirou, reconecte e tente enviar de novo.');
+      uploadEmAndamento = false;
+      esconderLoading();
+      iniciarGoogleAuth();
+      return;
+    }
     mostrarToast('Erro no upload: ' + extrairErroGoogle(e));
   }
 
   arquivoAtual = null;
+  uploadEmAndamento = false;
   document.getElementById('file-input').value = '';
   esconderLoading();
 }
@@ -1250,6 +1290,33 @@ async function proximaLinhaVazia(aba) {
   });
   const linhas = resp.result.values || [];
   return linhas.length + 1;
+}
+
+// proximaLinhaVazia() sozinha tem uma janela de corrida: ela LÊ a planilha
+// pra decidir o número da linha, mas só ESCREVE alguns milissegundos depois
+// (depois de já ter feito upload no Drive etc.). Se duas gravações
+// acontecerem quase juntas (duplo clique, duas abas do app abertas ao mesmo
+// tempo, conexão lenta e o usuário clica de novo) as duas podem calcular a
+// MESMA linha "vazia" e uma sobrescreve/atropela a outra — um jeito
+// plausível de explicar linha gravada em lugar errado mesmo com o range
+// sendo montado certinho no código. Essa função fecha essa janela: depois de
+// calcular a linha candidata, confere DE NOVO, na hora, se ela está mesmo
+// vazia; se não estiver (alguém escreveu ali entre o cálculo e agora),
+// recalcula do zero e tenta de novo, algumas vezes, antes de desistir.
+async function linhaVaziaSegura(aba, ultimaColuna) {
+  for (let tentativa = 1; tentativa <= 5; tentativa++) {
+    const linha = await proximaLinhaVazia(aba);
+    const resp = await window.gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: CONFIG.SHEETS_ID,
+      range: `${aba}!A${linha}:${ultimaColuna}${linha}`
+    });
+    const celulas = (resp.result.values && resp.result.values[0]) || [];
+    const ocupada = celulas.some(v => v !== '' && v != null);
+    if (!ocupada) return linha;
+    console.warn(`[${aba}] linha ${linha} já foi ocupada por outra gravação entre o cálculo e a conferência (tentativa ${tentativa}/5) — recalculando...`);
+    await new Promise(r => setTimeout(r, 250 + Math.random() * 250));
+  }
+  throw new Error(`Não foi possível achar uma linha vazia em ${aba} depois de várias tentativas. Tente novamente em alguns segundos.`);
 }
 
 // Busca o número da linha (1-based, contando o cabeçalho) onde a coluna A
