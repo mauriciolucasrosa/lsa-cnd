@@ -948,12 +948,17 @@ async function salvarCliente() {
   try {
     if (state.googleToken) {
       if (id_edit) {
-        // Encontra linha e atualiza
+        // Acha a linha de verdade na planilha pelo ID (coluna A), em vez de
+        // confiar no índice local (idx+2). Ver nota grande em removerCliente()
+        // sobre por que essa suposição de "índice local = linha da planilha"
+        // é perigosa assim que existe qualquer linha em branco no meio da
+        // aba CLIENTES (por exemplo, deixada por uma remoção antiga).
         const idx = state.clientes.findIndex(c=>c.id===id_edit);
-        if (idx >= 0) {
+        const linha = await buscarLinhaPorId('CLIENTES', id_edit);
+        if (idx >= 0 && linha) {
           await window.gapi.client.sheets.spreadsheets.values.update({
             spreadsheetId: CONFIG.SHEETS_ID,
-            range: `CLIENTES!A${idx+2}:M${idx+2}`,
+            range: `CLIENTES!A${linha}:M${linha}`,
             valueInputOption: 'RAW',
             resource: {values: [row]}
           });
@@ -1027,9 +1032,13 @@ async function alternarAtivoCliente(id) {
     atualizado.ativo, atualizado.data_cadastro, atualizado.certificado_digital_venc||'', atualizado.alvara_venc||''];
   try {
     if (state.googleToken) {
+      // Linha real na planilha pelo ID, não pelo índice local — ver nota em
+      // removerCliente() sobre linhas em branco quebrarem essa suposição.
+      const linha = await buscarLinhaPorId('CLIENTES', id);
+      if (!linha) throw new Error('Cliente não encontrado na planilha (pode já ter sido removido por outra pessoa).');
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId: CONFIG.SHEETS_ID,
-        range: `CLIENTES!A${idx+2}:M${idx+2}`,
+        range: `CLIENTES!A${linha}:M${linha}`,
         valueInputOption: 'RAW',
         resource: {values: [row]}
       });
@@ -1055,9 +1064,20 @@ async function alternarAtivoCliente(id) {
 // antes, avisa se existem certidões vinculadas (elas não são apagadas
 // automaticamente, só ficam órfãs) e recomenda "Desativar" como alternativa
 // reversível. Usamos values.clear (limpa as células) em vez de excluir a
-// linha de verdade — assim não corremos o risco de desalinhar os índices
-// dos outros clientes; recarregamos a lista do zero logo em seguida pra
-// já refletir a remoção.
+// linha de verdade.
+//
+// IMPORTANTE: a linha a limpar é achada pelo ID (coluna A), com
+// buscarLinhaPorId(), e NÃO pelo índice local (idx+2). Antes era feito por
+// idx+2, partindo do princípio de que "o cliente na posição N do array
+// local está sempre na linha N+2 da planilha". Essa suposição só é
+// verdadeira enquanto a aba CLIENTES não tem NENHUMA linha em branco no
+// meio — mas basta UMA remoção antiga ter deixado uma linha vazia pra trás
+// (values.clear limpa o conteúdo, não apaga a linha) pra todo cliente
+// DEPOIS dela ficar com índice local desalinhado da linha real. Foi
+// exatamente isso que causava "removo o cliente, atualizo a página e ele
+// volta": a remoção limpava uma linha errada (em branco ou de outro
+// cliente), então o cliente que devia sumir continuava intacto na
+// planilha.
 async function removerCliente(id) {
   const idx = state.clientes.findIndex(c => c.id === id);
   if (idx < 0) return;
@@ -1071,11 +1091,14 @@ async function removerCliente(id) {
   mostrarLoading('Removendo cliente...');
   try {
     if (state.googleToken) {
-      await window.gapi.client.sheets.spreadsheets.values.clear({
-        spreadsheetId: CONFIG.SHEETS_ID,
-        range: `CLIENTES!A${idx+2}:M${idx+2}`
-      });
-      await carregarDados(); // recarrega do Sheets pra realinhar os índices das linhas
+      const linha = await buscarLinhaPorId('CLIENTES', id);
+      if (linha) {
+        await window.gapi.client.sheets.spreadsheets.values.clear({
+          spreadsheetId: CONFIG.SHEETS_ID,
+          range: `CLIENTES!A${linha}:M${linha}`
+        });
+      }
+      await carregarDados(); // recarrega do Sheets pra refletir a remoção
     } else {
       state.clientes.splice(idx, 1);
       salvarLocal();
