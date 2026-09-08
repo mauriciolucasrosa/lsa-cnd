@@ -1134,13 +1134,18 @@ async function fazerUpload() {
       linkDrive = data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
     }
 
-    // Se já existe uma CND desse tipo/mês, reaproveitamos o mesmo id e
-    // ATUALIZAMOS a linha existente na planilha em vez de criar uma nova —
-    // do jeito que estava antes, "substituir" sempre fazia um append, então
-    // a cada re-envio sobrava uma linha antiga e obsoleta na aba CERTIDOES.
-    const certAnterior = getCertidao(cliente.id, tipo, mes);
+    // "Substituir PDF" agora funciona do mesmo jeito que fazer "Remover CND"
+    // e depois enviar uma nova: primeiro limpa qualquer linha antiga desse
+    // cliente+tipo+mês na planilha (normalmente 0 ou 1, mas pode haver mais
+    // de uma sobrando de testes com versões antigas do app) e SÓ DEPOIS
+    // grava a nova como uma linha nova, com id novo. Antes, o código tentava
+    // localizar a linha antiga e regravar por cima dela (update in-place) —
+    // esse caminho se mostrou o causador do bug em que o Dashboard voltava a
+    // mostrar a CND anterior mesmo com o PDF novo já salvo no Drive. Limpar
+    // e gravar do zero é mais simples e usa exatamente o mesmo mecanismo do
+    // "Remover CND" + upload novo, que já sabemos que funciona direito.
     const cert = {
-      id: certAnterior ? certAnterior.id : ('CERT' + Date.now()),
+      id: 'CERT' + Date.now(),
       cliente_id: cliente.id,
       tipo,
       mes_ano: mes,
@@ -1152,30 +1157,24 @@ async function fazerUpload() {
     };
 
     // Importante: só mexemos em state.certidoes DEPOIS que a gravação no
-    // Sheets deu certo. Antes, essa mutação acontecia antes do await abaixo —
-    // se a gravação remota falhasse (ex.: permissão, rede), o dado "otimista"
-    // ficava só na memória, sem nunca passar por atualizarUI(); na prática,
-    // o Dashboard congelava com números desatualizados até a próxima ação
-    // bem-sucedida (que aí sim rodava atualizarUI() e revelava a inconsistência).
+    // Sheets deu certo — evita que um dado "otimista" fique só na memória,
+    // sem nunca passar por atualizarUI(), se a gravação remota falhar.
     if (state.googleToken) {
-      const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao, cert.vencimento];
-      const linhaExistente = certAnterior ? await buscarLinhaPorId('CERTIDOES', certAnterior.id) : null;
-      if (linhaExistente) {
-        await window.gapi.client.sheets.spreadsheets.values.update({
+      const linhasAntigas = await buscarLinhasCertidao(cliente.id, tipo, mes);
+      for (const linha of linhasAntigas) {
+        await window.gapi.client.sheets.spreadsheets.values.clear({
           spreadsheetId: CONFIG.SHEETS_ID,
-          range: `CERTIDOES!A${linhaExistente}:I${linhaExistente}`,
-          valueInputOption: 'RAW',
-          resource: {values: [row]}
-        });
-      } else {
-        await window.gapi.client.sheets.spreadsheets.values.append({
-          spreadsheetId: CONFIG.SHEETS_ID,
-          range: 'CERTIDOES!A:I',
-          valueInputOption: 'RAW',
-          insertDataOption: 'INSERT_ROWS',
-          resource: {values: [row]}
+          range: `CERTIDOES!A${linha}:I${linha}`
         });
       }
+      const row = [cert.id, cert.cliente_id, cert.tipo, cert.mes_ano, cert.status, cert.data_upload, cert.link_drive, cert.observacao, cert.vencimento];
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: CONFIG.SHEETS_ID,
+        range: 'CERTIDOES!A:I',
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        resource: {values: [row]}
+      });
     }
 
     state.certidoes = state.certidoes.filter(c => !(c.cliente_id===cliente.id && c.tipo===tipo && c.mes_ano===mes));
@@ -1245,6 +1244,25 @@ async function buscarLinhaPorId(aba, id) {
   const col = resp.result.values || [];
   const idx = col.findIndex(r => r[0] === id);
   return idx >= 0 ? idx + 1 : null;
+}
+
+// Acha TODAS as linhas de CERTIDOES já existentes pra esse cliente+tipo+mês
+// (o normal é achar 0 ou 1, mas testes com versões antigas do app podem ter
+// deixado mais de uma linha duplicada por aí) — usada pelo "Substituir PDF"
+// pra limpar qualquer registro antigo antes de gravar o novo, garantindo que
+// não sobra nenhuma linha concorrendo pra aparecer como "a CND atual" no
+// Dashboard.
+async function buscarLinhasCertidao(clienteId, tipo, mes) {
+  const resp = await window.gapi.client.sheets.spreadsheets.values.get({
+    spreadsheetId: CONFIG.SHEETS_ID,
+    range: 'CERTIDOES!A:D'
+  });
+  const linhas = resp.result.values || [];
+  const encontradas = [];
+  linhas.forEach((r, i) => {
+    if (r[1] === clienteId && r[2] === tipo && r[3] === mes) encontradas.push(i + 1);
+  });
+  return encontradas;
 }
 
 // Remove uma CND específica: limpa a linha dela na planilha CERTIDOES
