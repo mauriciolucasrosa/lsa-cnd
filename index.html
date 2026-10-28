@@ -301,6 +301,10 @@ tr:hover td{background:#fafbfc;cursor:pointer}
         Clientes
       </div>
       <div class="nav-label">Certidões</div>
+      <div class="nav-item" onclick="abrirNotificacoes(this)">
+        <svg viewBox="0 0 16 16"><path d="M8 2a4 4 0 0 0-4 4v3l-2 3h12l-2-3V6a4 4 0 0 0-4-4z"/><path d="M6 14h4"/></svg>
+        Notificações <span id="badge-notificacoes" style="margin-left:auto;background:#ef4444;color:white;padding:1px 7px;border-radius:20px">0</span>
+      </div>
       <div class="nav-item" onclick="abrirPendentes(null,this)">
         <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
         Pendentes
@@ -351,17 +355,7 @@ tr:hover td{background:#fafbfc;cursor:pointer}
             <div class="stat-value" id="stat-ok">0</div>
             <div class="stat-sub">todas certidões ok</div>
           </div>
-          <div class="stat warn">
-            <div class="stat-icon"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg></div>
-            <div class="stat-label">Pendentes</div>
-            <div class="stat-value" id="stat-pendente">0</div>
-            <div class="stat-sub">aguardando emissão</div>
-          </div>
-          <div class="stat err">
-            <div class="stat-icon"><svg viewBox="0 0 16 16"><path d="M8 3v4M8 10v1"/><circle cx="8" cy="8" r="6"/></svg></div>
-            <div class="stat-label">Sem cadastro</div>
-            <div class="stat-value" id="stat-sem">0</div>
-            <div class="stat-sub">nenhuma CND</div>
+<div class="stat-sub">nenhuma CND</div>
           </div>
           <div class="stat warn stat-clickable" onclick="abrirPendentes('vencendo')" title="Clique para ver os clientes">
             <div class="stat-icon"><svg viewBox="0 0 16 16"><path d="M8 3v4M8 10v1"/><circle cx="8" cy="8" r="6"/></svg></div>
@@ -374,6 +368,11 @@ tr:hover td{background:#fafbfc;cursor:pointer}
             <div class="stat-label">CNDs vencidas</div>
             <div class="stat-value" id="stat-vencida">0</div>
             <div class="stat-sub">precisam de emissão urgente</div>
+          </div>
+          <div class="stat blue">
+            <div class="stat-label">Certificados digitais</div>
+            <div class="stat-value" id="stat-cert-ok">0 em dia</div>
+            <div class="stat-sub"><span id="stat-cert-soon">0 a vencer</span> · <span id="stat-cert-expired">0 vencidos</span></div>
           </div>
         </div>
 
@@ -410,6 +409,7 @@ tr:hover td{background:#fafbfc;cursor:pointer}
                 <th>Mun</th>
                 <th>Trab</th>
                 <th>FGTS</th>
+                <th>Certificado digital</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -419,6 +419,10 @@ tr:hover td{background:#fafbfc;cursor:pointer}
         </div>
       </div>
 
+      <div class="view" id="view-notificacoes">
+        <div class="table-wrap"><div class="table-header"><span class="table-title">CNDs vencidas e observações</span></div>
+        <div id="notificacoes-lista" style="padding:18px"></div></div>
+      </div>
       <!-- ── CLIENTES ── -->
       <div class="view" id="view-clientes">
         <div class="toolbar">
@@ -584,6 +588,17 @@ tr:hover td{background:#fafbfc;cursor:pointer}
       <div class="form-group">
         <label class="form-label">Vencimento do certificado digital</label>
         <input type="date" class="form-input" id="form-cert-digital-venc">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Corpo de Bombeiros</label>
+        <select class="form-select" id="form-bombeiros-isento" onchange="alternarIsencaoBombeiros()">
+          <option value="nao">Com vencimento</option><option value="sim">Isento</option>
+        </select>
+        <input type="date" class="form-input" id="form-bombeiros-venc" style="margin-top:7px">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Vencimento da procuração</label>
+        <input type="date" class="form-input" id="form-procuracao-venc">
       </div>
       <div class="form-group">
         <label class="form-label">Vencimento do alvará de funcionamento</label>
@@ -854,7 +869,7 @@ async function carregarDados() {
     // Clientes
     const rCli = await window.gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: CONFIG.SHEETS_ID,
-      range: 'CLIENTES!A2:M'
+      range: 'CLIENTES!A2:P'
     });
     const rowsCli = rCli.result.values || [];
     state.clientes = rowsCli.map(r => ({
@@ -862,7 +877,7 @@ async function carregarDados() {
       municipio: r[4]||'', inscricao_estadual: r[5]||'', inscricao_municipal: r[6]||'',
       email: r[7]||'', telefone: r[8]||'', ativo: r[9]||'sim', data_cadastro: r[10]||'',
       certificado_digital_venc: r[11]||'', // AAAA-MM-DD; colunas L/M novas, linhas antigas ficam com ''
-      alvara_venc: r[12]||''
+      alvara_venc: r[12]||'', bombeiros_venc: r[13]||'', bombeiros_isento: r[14]||'nao', procuracao_venc: r[15]||''
     })).filter(c => c.cnpj);
 
     // Certidões
@@ -938,12 +953,12 @@ async function salvarCliente() {
     ativo: clienteExistente ? clienteExistente.ativo : 'sim',
     data_cadastro: clienteExistente ? (clienteExistente.data_cadastro || new Date().toLocaleDateString('pt-BR')) : new Date().toLocaleDateString('pt-BR'),
     certificado_digital_venc: document.getElementById('form-cert-digital-venc').value, // AAAA-MM-DD ou ''
-    alvara_venc: document.getElementById('form-alvara-venc').value // AAAA-MM-DD ou ''
+    alvara_venc: document.getElementById('form-alvara-venc').value, bombeiros_venc: document.getElementById('form-bombeiros-venc').value, bombeiros_isento: document.getElementById('form-bombeiros-isento').value, procuracao_venc: document.getElementById('form-procuracao-venc').value
   };
 
   const row = [cliente.id, cliente.cnpj, cliente.razao_social, cliente.estado, cliente.municipio,
     cliente.inscricao_estadual, cliente.inscricao_municipal, cliente.email, cliente.telefone,
-    cliente.ativo, cliente.data_cadastro, cliente.certificado_digital_venc, cliente.alvara_venc];
+    cliente.ativo, cliente.data_cadastro, cliente.certificado_digital_venc, cliente.alvara_venc, cliente.bombeiros_venc, cliente.bombeiros_isento, cliente.procuracao_venc];
 
   try {
     if (state.googleToken) {
@@ -958,15 +973,15 @@ async function salvarCliente() {
         if (idx >= 0 && linha) {
           await window.gapi.client.sheets.spreadsheets.values.update({
             spreadsheetId: CONFIG.SHEETS_ID,
-            range: `CLIENTES!A${linha}:M${linha}`,
+            range: `CLIENTES!A${linha}:P${linha}`,
             valueInputOption: 'RAW',
             resource: {values: [row]}
           });
           state.clientes[idx] = cliente;
         }
       } else {
-        const linha = await linhaVaziaSegura('CLIENTES', 'M');
-        const rangeGravacao = `CLIENTES!A${linha}:M${linha}`;
+        const linha = await linhaVaziaSegura('CLIENTES', 'P');
+        const rangeGravacao = `CLIENTES!A${linha}:P${linha}`;
         console.log('[CLIENTES] Gravando novo cliente', {linha, range: rangeGravacao, row});
         await window.gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId: CONFIG.SHEETS_ID,
@@ -1038,7 +1053,7 @@ async function alternarAtivoCliente(id) {
       if (!linha) throw new Error('Cliente não encontrado na planilha (pode já ter sido removido por outra pessoa).');
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId: CONFIG.SHEETS_ID,
-        range: `CLIENTES!A${linha}:M${linha}`,
+        range: `CLIENTES!A${linha}:P${linha}`,
         valueInputOption: 'RAW',
         resource: {values: [row]}
       });
@@ -1095,7 +1110,7 @@ async function removerCliente(id) {
       if (linha) {
         await window.gapi.client.sheets.spreadsheets.values.clear({
           spreadsheetId: CONFIG.SHEETS_ID,
-          range: `CLIENTES!A${linha}:M${linha}`
+          range: `CLIENTES!A${linha}:P${linha}`
         });
       }
       await carregarDados(); // recarrega do Sheets pra refletir a remoção
@@ -1419,6 +1434,7 @@ function atualizarUI() {
   renderizarClientes();
   renderizarPendentes();
   atualizarStats();
+  renderizarNotificacoes();
 }
 
 function atualizarStats() {
@@ -1433,8 +1449,10 @@ function atualizarStats() {
 
   document.getElementById('stat-total').textContent = ativos.length;
   document.getElementById('stat-ok').textContent = comTodasOk.length;
-  document.getElementById('stat-pendente').textContent = comPendente.length;
-  document.getElementById('stat-sem').textContent = semNenhuma.length;
+  const certSituacoes = ativos.map(c => situacaoVencimento({vencimento:c.certificado_digital_venc})).filter((_,i)=>!!ativos[i].certificado_digital_venc);
+  document.getElementById('stat-cert-ok').textContent = certSituacoes.filter(s=>!s).length + ' em dia';
+  document.getElementById('stat-cert-soon').textContent = certSituacoes.filter(s=>s==='vencendo').length + ' a vencer';
+  document.getElementById('stat-cert-expired').textContent = certSituacoes.filter(s=>s==='vencida').length + ' vencidos';
   document.getElementById('stat-vencendo').textContent = comVencendo.length;
   document.getElementById('stat-vencida').textContent = comVencida.length;
   document.getElementById('stat-vencendo-dias').textContent = CONFIG.DIAS_ALERTA_VENCIMENTO;
@@ -1614,7 +1632,7 @@ function renderizarDashboard() {
   document.getElementById('dash-count').textContent = clientes.length + ' clientes';
 
   if (!clientes.length) {
-    tbody.innerHTML = `<tr><td colspan="10"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg><p>Nenhum cliente encontrado</p><span>Cadastre o primeiro cliente</span></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg><p>Nenhum cliente encontrado</p><span>Cadastre o primeiro cliente</span></div></td></tr>`;
     return;
   }
 
@@ -1628,6 +1646,7 @@ function renderizarDashboard() {
       <td><span class="mono">${c.cnpj}</span></td>
       <td>${c.estado}</td>
       ${CONFIG.TIPOS_CND.map(t => `<td>${certDotAtual(c.id,t)}</td>`).join('')}
+      <td>${badgeVencimento(c.certificado_digital_venc)}</td>
       <td>${badge}</td>
       <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();abrirDetalhe('${c.id}')">Ver</button></td>
     </tr>`;
@@ -1772,6 +1791,7 @@ function renderizarDetalheCliente() {
         <div class="cert-name">${tipo}</div>
         <div class="cert-status">${statusTxt}</div>
         <div class="cert-date">${dataTxt}</div>
+        ${venc === 'vencida' ? `<div style="margin:9px 0"><label class="form-label">Pendência / observação</label><textarea class="form-input" rows="2" id="obs-${cert.id}" placeholder="Descreva a pendência">${escaparHTML(cert.observacao||'')}</textarea><button class="btn btn-primary btn-sm" style="margin-top:5px" onclick="salvarObservacao('${cert.id}')">Salvar observação</button></div>` : ''}
         <div class="cert-actions">
           ${cert && cert.link_drive ? `<a href="${cert.link_drive}" target="_blank" class="cert-btn">Ver PDF</a>` : ''}
           <button class="cert-btn upload-btn" onclick="abrirUpload('${tipo}')">
@@ -1789,7 +1809,9 @@ function renderizarDetalheCliente() {
   // função só olha essa propriedade — não precisa de uma variante nova.
   document.getElementById('det-outros-venc').innerHTML =
     renderVencimentoCard('Certificado Digital', c.certificado_digital_venc) +
-    renderVencimentoCard('Alvará de Funcionamento', c.alvara_venc);
+    renderVencimentoCard('Alvará de Funcionamento', c.alvara_venc) +
+    (c.bombeiros_isento === 'sim' ? '<div class="cert-card ok"><div class="cert-name">Corpo de Bombeiros</div><div class="cert-status">✓ Isento</div></div>' : renderVencimentoCard('Corpo de Bombeiros', c.bombeiros_venc)) +
+    renderVencimentoCard('Procuração', c.procuracao_venc);
 
   // Histórico: mantido como registro auditável de todos os envios por mês,
   // apenas para consulta — não interfere mais nos cards acima.
@@ -1815,7 +1837,9 @@ function renderizarDetalheCliente() {
 function abrirModalCliente() {
   document.getElementById('modal-cli-title').textContent = 'Novo cliente';
   document.getElementById('form-cli-id').value = '';
-  ['form-razao','form-cnpj','form-email','form-tel','form-municipio','form-ie','form-im','form-cert-digital-venc','form-alvara-venc'].forEach(id => document.getElementById(id).value = '');
+  ['form-razao','form-cnpj','form-email','form-tel','form-municipio','form-ie','form-im','form-cert-digital-venc','form-alvara-venc','form-bombeiros-venc','form-procuracao-venc'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('form-bombeiros-isento').value = 'nao';
+  alternarIsencaoBombeiros();
   document.getElementById('form-estado').value = 'SP';
   document.getElementById('modal-cliente').classList.add('open');
 }
@@ -1835,6 +1859,10 @@ function editarCliente(id) {
   document.getElementById('form-im').value = c.inscricao_municipal;
   document.getElementById('form-cert-digital-venc').value = c.certificado_digital_venc || '';
   document.getElementById('form-alvara-venc').value = c.alvara_venc || '';
+  document.getElementById('form-bombeiros-venc').value = c.bombeiros_venc || '';
+  document.getElementById('form-bombeiros-isento').value = c.bombeiros_isento || 'nao';
+  document.getElementById('form-procuracao-venc').value = c.procuracao_venc || '';
+  alternarIsencaoBombeiros();
   document.getElementById('modal-cliente').classList.add('open');
 }
 
@@ -1942,6 +1970,61 @@ function mostrarLoading(msg='Carregando...') {
 
 function esconderLoading() {
   document.getElementById('loading').classList.remove('show');
+}
+
+function escaparHTML(v) {return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+function badgeVencimento(data) {
+  if (!data) return '<span class="badge badge-gray">Não informado</span>';
+  const s=situacaoVencimento({vencimento:data});
+  return s==='vencida' ? '<span class="badge badge-err">Vencido</span>' : s==='vencendo' ? '<span class="badge badge-warn">A vencer</span>' : '<span class="badge badge-ok">Em dia</span>';
+}
+function alternarIsencaoBombeiros() {
+  const isento=document.getElementById('form-bombeiros-isento').value==='sim';
+  const campo=document.getElementById('form-bombeiros-venc');
+  campo.disabled=isento; campo.style.opacity=isento?'.4':'1';
+  if(isento) campo.value='';
+}
+function abrirNotificacoes(el) {showView('notificacoes',el);renderizarNotificacoes();}
+function renderizarNotificacoes() {
+  const pendencias=[];
+  state.clientes.filter(c=>c.ativo==='sim').forEach(c=>{
+    CONFIG.TIPOS_CND.forEach(tipo=>{
+      const cert=certidaoMaisRecente(c.id,tipo);
+      if(situacaoVencimento(cert)==='vencida') pendencias.push({c,tipo,cert});
+    });
+  });
+  const badge=document.getElementById('badge-notificacoes');
+  if(badge) badge.textContent=pendencias.length;
+  const lista=document.getElementById('notificacoes-lista');
+  if(!lista) return;
+  lista.innerHTML=pendencias.length ? pendencias.map(({c,tipo,cert})=>`<div style="padding:14px 0;border-bottom:1px solid var(--border)">
+    <strong>${escaparHTML(c.razao_social)}</strong> — <span style="color:var(--err)">${tipo} vencida em ${formatarDataBR(cert.vencimento)}</span>
+    <div style="margin:7px 0;font-size:13px">${escaparHTML(cert.observacao||'Pendência ainda não descrita')}</div>
+    <button class="btn btn-ghost btn-sm" onclick="abrirDetalhe('${c.id}')">Ver cliente / registrar observação</button>
+  </div>`).join('') : '<p>Nenhuma CND vencida no momento.</p>';
+}
+let salvandoObservacao=false;
+async function salvarObservacao(certId) {
+  if(salvandoObservacao)return;
+  const cert=state.certidoes.find(c=>c.id===certId);
+  if(!cert)return;
+  const campo=document.getElementById('obs-'+certId);
+  const valor=campo?.value.trim()||'';
+  salvandoObservacao=true;
+  try {
+    if(state.googleToken) {
+      const linha=await buscarLinhaPorId('CERTIDOES',certId);
+      if(!linha) throw new Error('Certidão não encontrada na planilha');
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId:CONFIG.SHEETS_ID,range:`CERTIDOES!H${linha}`,
+        valueInputOption:'RAW',resource:{values:[[valor]]}
+      });
+    }
+    cert.observacao=valor;
+    if(!state.googleToken) salvarLocal();
+    atualizarUI();renderizarDetalheCliente();mostrarToast('Observação salva!');
+  } catch(e){mostrarToast('Erro ao salvar observação: '+(e.message||e));}
+  finally{salvandoObservacao=false;}
 }
 </script>
 </body>
